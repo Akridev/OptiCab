@@ -387,11 +387,11 @@ export default async function handler(req, res) {
       const walkTime = Math.round(targetDistance * 12);
 
       const carOptions = [];
-      if (activePlatforms.includes('Grab')) carOptions.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: fareMatrix.grab.rideDurationMinutes });
-      if (activePlatforms.includes('TADA')) carOptions.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: fareMatrix.tada.rideDurationMinutes });
-      if (activePlatforms.includes('Gojek')) carOptions.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: fareMatrix.gojek.rideDurationMinutes });
-      if (activePlatforms.includes('Ryde')) carOptions.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: fareMatrix.ryde.rideDurationMinutes });
-      if (activePlatforms.includes('ComfortDelGro')) carOptions.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: fareMatrix.cdg.rideDurationMinutes });
+      if (activePlatforms.includes('Grab')) carOptions.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: fareMatrix.grab.rideDurationMinutes, carType: 'JustGrab 4-Seater' });
+      if (activePlatforms.includes('TADA')) carOptions.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: fareMatrix.tada.rideDurationMinutes, carType: 'TADA Standard 4-Seater' });
+      if (activePlatforms.includes('Gojek')) carOptions.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: fareMatrix.gojek.rideDurationMinutes, carType: 'GoCar 4-Seater' });
+      if (activePlatforms.includes('Ryde')) carOptions.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: fareMatrix.ryde.rideDurationMinutes, carType: 'RydeX 4-Seater' });
+      if (activePlatforms.includes('ComfortDelGro')) carOptions.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: fareMatrix.cdg.rideDurationMinutes, carType: 'ComfortRIDE 4-Seater' });
 
       const sortedFastestCar = carOptions.sort((a, b) => a.eta - b.eta)[0];
 
@@ -413,12 +413,54 @@ export default async function handler(req, res) {
       ComfortDelGro: { largeVehicle: true, babySeat: true },
     };
 
+    // Car type labels based on provider + requirements
+    const CAR_TYPES = {
+      Grab: {
+        standard: 'JustGrab 4-Seater',
+        babySeat: 'GrabFamily 4-Seater (Child Seat, Age 1–7)',
+        largeVehicle: 'Grab 6-Seater',
+        largeBaby: 'GrabFamily 6-Seater (Child Seat, Age 1–7)',
+      },
+      TADA: {
+        standard: 'TADA Standard 4-Seater',
+        babySeat: 'TADA Standard 4-Seater',
+        largeVehicle: 'TADA Standard 4-Seater',
+        largeBaby: 'TADA Standard 4-Seater',
+      },
+      Gojek: {
+        standard: 'GoCar 4-Seater',
+        babySeat: 'GoCar 4-Seater',
+        largeVehicle: 'GoCar 4-Seater',
+        largeBaby: 'GoCar 4-Seater',
+      },
+      Ryde: {
+        standard: 'RydeX 4-Seater',
+        babySeat: 'RydeX 4-Seater',
+        largeVehicle: 'RydeX 4-Seater',
+        largeBaby: 'RydeX 4-Seater',
+      },
+      ComfortDelGro: {
+        standard: 'ComfortRIDE 4-Seater',
+        babySeat: 'ComfortRIDE Family (Child Seat, Age 1–7)',
+        largeVehicle: 'ComfortRIDE 6-Seater',
+        largeBaby: 'ComfortRIDE Family 6-Seater (Child Seat, Age 1–7)',
+      },
+    };
+
+    // Determine which car type variant to use
+    function getCarType(provider) {
+      if (needsBabySeat && needsLargeVehicle) return CAR_TYPES[provider]?.largeBaby || CAR_TYPES[provider]?.standard;
+      if (needsBabySeat) return CAR_TYPES[provider]?.babySeat || CAR_TYPES[provider]?.standard;
+      if (needsLargeVehicle) return CAR_TYPES[provider]?.largeVehicle || CAR_TYPES[provider]?.standard;
+      return CAR_TYPES[provider]?.standard || 'Standard 4-Seater';
+    }
+
     let optionsPool = [];
-    if (activePlatforms.includes('Grab')) optionsPool.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: fareMatrix.grab.rideDurationMinutes });
-    if (activePlatforms.includes('TADA')) optionsPool.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: fareMatrix.tada.rideDurationMinutes });
-    if (activePlatforms.includes('Gojek')) optionsPool.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: fareMatrix.gojek.rideDurationMinutes });
-    if (activePlatforms.includes('Ryde')) optionsPool.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: fareMatrix.ryde.rideDurationMinutes });
-    if (activePlatforms.includes('ComfortDelGro')) optionsPool.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: fareMatrix.cdg.rideDurationMinutes });
+    if (activePlatforms.includes('Grab')) optionsPool.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: fareMatrix.grab.rideDurationMinutes, carType: getCarType('Grab') });
+    if (activePlatforms.includes('TADA')) optionsPool.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: fareMatrix.tada.rideDurationMinutes, carType: getCarType('TADA') });
+    if (activePlatforms.includes('Gojek')) optionsPool.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: fareMatrix.gojek.rideDurationMinutes, carType: getCarType('Gojek') });
+    if (activePlatforms.includes('Ryde')) optionsPool.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: fareMatrix.ryde.rideDurationMinutes, carType: getCarType('Ryde') });
+    if (activePlatforms.includes('ComfortDelGro')) optionsPool.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: fareMatrix.cdg.rideDurationMinutes, carType: getCarType('ComfortDelGro') });
 
     if (needsBabySeat) {
       optionsPool = optionsPool.filter(opt => PROVIDER_FEATURES[opt.provider]?.babySeat);

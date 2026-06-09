@@ -291,6 +291,9 @@ export default function App() {
                     <Text style={styles.cardHeader}>💰⚡ CHEAPEST & FASTEST</Text>
                     <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
                     <Text style={styles.provider}>{result.cheapest.provider}</Text>
+                    {result.cheapest.carType && (
+                      <Text style={styles.carType}>🚘 {result.cheapest.carType}</Text>
+                    )}
                     {result.cheapest.eta != null && (
                       <Text style={styles.timing}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
                     )}
@@ -312,6 +315,9 @@ export default function App() {
                     <Text style={styles.cardHeader}>💰 CHEAPEST</Text>
                     <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
                     <Text style={styles.provider}>{result.cheapest.provider}</Text>
+                    {result.cheapest.carType && (
+                      <Text style={styles.carType}>🚘 {result.cheapest.carType}</Text>
+                    )}
                     {result.cheapest.eta != null && (
                       <Text style={styles.timing}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
                     )}
@@ -330,6 +336,9 @@ export default function App() {
                     <Text style={styles.cardHeader}>⚡ FASTEST</Text>
                     <Text style={styles.price}>${result.fastest.price.toFixed(2)}</Text>
                     <Text style={styles.provider}>{result.fastest.provider}</Text>
+                    {result.fastest.carType && (
+                      <Text style={styles.carType}>🚘 {result.fastest.carType}</Text>
+                    )}
                     {result.fastest.eta != null && (
                       <Text style={styles.timing}>🚗 Pickup: {result.fastest.eta} min ({getTimeString(result.fastest.eta)})</Text>
                     )}
@@ -548,6 +557,13 @@ const styles = StyleSheet.create({
     color: '#444',
     marginTop: 2,
     fontWeight: '600',
+  },
+  carType: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 3,
+    fontWeight: '500',
+    fontStyle: 'italic',
   },
   timing: {
     fontSize: 11,
