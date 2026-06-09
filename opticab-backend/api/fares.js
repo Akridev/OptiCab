@@ -1,6 +1,6 @@
 // opticab-backend/api/fares.js
 // Multi-Provider Fare Matrix Engine (Vercel Serverless Function)
-// Simulates real-time pricing across 5 Singapore ride-hailing platforms
+// Uses OneMap Singapore for real road distance & driving time
 
 const FARE_CONFIG = {
   grab: {
@@ -50,15 +50,63 @@ const FARE_CONFIG = {
   },
 };
 
-function haversineDistanceKm(lat1, lng1, lat2, lng2) {
-  const R = 6371;
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+// ─────────────────────────────────────────────
+// OneMap Integration: Auth, Geocode, Route
+// ─────────────────────────────────────────────
+
+let cachedToken = null;
+let tokenExpiry = 0;
+
+async function getOneMapToken() {
+  // Return cached token if still valid
+  if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
+
+  const response = await fetch('https://www.onemap.gov.sg/api/auth/post/getToken', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: process.env.ONEMAP_EMAIL,
+      password: process.env.ONEMAP_PASSWORD,
+    }),
+  });
+  const data = await response.json();
+  cachedToken = data.access_token;
+  // Token lasts 3 days, refresh after 2 days
+  tokenExpiry = Date.now() + 2 * 24 * 60 * 60 * 1000;
+  return cachedToken;
 }
+
+async function geocodeLocation(searchQuery, token) {
+  const encoded = encodeURIComponent(searchQuery);
+  const response = await fetch(
+    `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encoded}&returnGeom=Y&getAddrDetails=Y&pageNum=1`,
+    { headers: { Authorization: token } }
+  );
+  const data = await response.json();
+  if (data.results && data.results.length > 0) {
+    return { lat: parseFloat(data.results[0].LATITUDE), lng: parseFloat(data.results[0].LONGITUDE) };
+  }
+  return null;
+}
+
+async function getOneMapRoute(startLat, startLng, endLat, endLng, token) {
+  const response = await fetch(
+    `https://www.onemap.gov.sg/api/public/routingsvc/route?start=${startLat},${startLng}&end=${endLat},${endLng}&routeType=drive`,
+    { headers: { Authorization: token } }
+  );
+  const data = await response.json();
+  if (data.route_summary) {
+    return {
+      distanceKm: data.route_summary.total_distance / 1000,
+      durationMinutes: Math.round(data.route_summary.total_time / 60),
+    };
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────
+// Fare Calculation Logic
+// ─────────────────────────────────────────────
 
 function parseCoordinates(locationString) {
   if (!locationString || typeof locationString !== 'string') return null;
@@ -81,32 +129,27 @@ function getSurgeMultiplier(providerKey, sgHour) {
   return Math.min(rawSurge, config.surgeCapMultiplier);
 }
 
-function computeEta(providerKey, distanceKm, surgeMultiplier) {
+function computeEta(providerKey, surgeMultiplier) {
   const config = FARE_CONFIG[providerKey];
-  // ETA = pickup wait time only (not ride duration)
-  // Higher surge = more drivers active = slightly faster pickup
   const surgeEtaDiscount = surgeMultiplier > 1.3 ? -1 : 0;
-  // Random fleet noise: ±1 minute
   const fleetNoise = Math.floor(Math.random() * 3) - 1;
   const totalEta = config.baseEta + surgeEtaDiscount + fleetNoise;
-  // Clamp: 2–10 min pickup window (realistic for Singapore)
   return Math.max(2, Math.min(10, totalEta));
 }
 
-function calculateFare(providerKey, distanceKm, sgHour) {
+function calculateFare(providerKey, distanceKm, rideDurationMinutes, sgHour) {
   const config = FARE_CONFIG[providerKey];
   const surge = getSurgeMultiplier(providerKey, sgHour);
   const chargeableKm = Math.max(0, distanceKm - 1.0);
   const distanceCharge = chargeableKm * config.perKmRate;
-  const estimatedRideMinutes = Math.max(3, Math.round((distanceKm / 25) * 60));
-  const timeCharge = estimatedRideMinutes * config.perMinRate;
+  const timeCharge = rideDurationMinutes * config.perMinRate;
   const surgedFare = (config.baseFare + distanceCharge + timeCharge) * surge + config.bookingFee;
   const finalFare = Math.max(config.minFare, surgedFare);
 
   return {
     estimatedFare: parseFloat(finalFare.toFixed(2)),
-    baseEtaMinutes: computeEta(providerKey, distanceKm, surge),
-    rideDurationMinutes: estimatedRideMinutes,
+    baseEtaMinutes: computeEta(providerKey, surge),
+    rideDurationMinutes,
     surgeMultiplier: surge,
     breakdown: {
       baseFare: config.baseFare,
@@ -118,6 +161,10 @@ function calculateFare(providerKey, distanceKm, sgHour) {
   };
 }
 
+// ─────────────────────────────────────────────
+// Handler
+// ─────────────────────────────────────────────
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -126,19 +173,48 @@ export default async function handler(req, res) {
     const { pickupLocation, dropoffLocation, distanceKmOverride, needsLargeVehicle } = body;
 
     let distanceKm;
-    if (distanceKmOverride && typeof distanceKmOverride === 'number') {
-      distanceKm = distanceKmOverride;
-    } else {
-      const pickup = parseCoordinates(pickupLocation);
-      const dropoff = parseCoordinates(dropoffLocation);
-      if (pickup && dropoff) {
-        distanceKm = haversineDistanceKm(pickup.lat, pickup.lng, dropoff.lat, dropoff.lng);
-      } else {
-        distanceKm = 8.5;
+    let rideDurationMinutes;
+
+    // Try OneMap for real road distance
+    try {
+      const token = await getOneMapToken();
+
+      // Resolve coordinates
+      let pickupCoords = parseCoordinates(pickupLocation);
+      let dropoffCoords = parseCoordinates(dropoffLocation);
+
+      // Geocode place names if needed
+      if (!pickupCoords && pickupLocation) {
+        pickupCoords = await geocodeLocation(pickupLocation, token);
       }
+      if (!dropoffCoords && dropoffLocation) {
+        const dropoffStr = typeof dropoffLocation === 'object' ? dropoffLocation.address || JSON.stringify(dropoffLocation) : dropoffLocation;
+        dropoffCoords = await geocodeLocation(dropoffStr, token);
+      }
+
+      // Get driving route from OneMap
+      if (pickupCoords && dropoffCoords) {
+        const route = await getOneMapRoute(pickupCoords.lat, pickupCoords.lng, dropoffCoords.lat, dropoffCoords.lng, token);
+        if (route) {
+          distanceKm = route.distanceKm;
+          rideDurationMinutes = route.durationMinutes;
+        }
+      }
+    } catch (oneMapError) {
+      console.warn('OneMap fallback — using LLM estimate:', oneMapError.message);
+    }
+
+    // Fallback: use LLM-provided distance if OneMap failed
+    if (!distanceKm) {
+      distanceKm = distanceKmOverride && typeof distanceKmOverride === 'number' ? distanceKmOverride : 8.5;
+    }
+    if (!rideDurationMinutes) {
+      rideDurationMinutes = Math.max(3, Math.round((distanceKm / 30) * 60)); // estimate at 30 km/h
     }
 
     distanceKm = Math.max(0.5, Math.min(50, distanceKm));
+    rideDurationMinutes = Math.max(3, Math.min(60, rideDurationMinutes));
+
     const sgHour = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Singapore' })).getHours();
 
     // Large vehicle multiplier (6/7-seater MPV pricing is ~1.5x standard sedan)
@@ -151,12 +227,14 @@ export default async function handler(req, res) {
 
     const responsePayload = {
       distanceKm: parseFloat(distanceKm.toFixed(2)),
+      rideDurationMinutes,
       sgHour,
-      grab: applyVehicleMultiplier(calculateFare('grab', distanceKm, sgHour)),
-      tada: applyVehicleMultiplier(calculateFare('tada', distanceKm, sgHour)),
-      gojek: applyVehicleMultiplier(calculateFare('gojek', distanceKm, sgHour)),
-      ryde: applyVehicleMultiplier(calculateFare('ryde', distanceKm, sgHour)),
-      cdg: applyVehicleMultiplier(calculateFare('cdg', distanceKm, sgHour)),
+      source: distanceKm !== distanceKmOverride ? 'onemap' : 'llm-estimate',
+      grab: applyVehicleMultiplier(calculateFare('grab', distanceKm, rideDurationMinutes, sgHour)),
+      tada: applyVehicleMultiplier(calculateFare('tada', distanceKm, rideDurationMinutes, sgHour)),
+      gojek: applyVehicleMultiplier(calculateFare('gojek', distanceKm, rideDurationMinutes, sgHour)),
+      ryde: applyVehicleMultiplier(calculateFare('ryde', distanceKm, rideDurationMinutes, sgHour)),
+      cdg: applyVehicleMultiplier(calculateFare('cdg', distanceKm, rideDurationMinutes, sgHour)),
     };
 
     return res.status(200).json(responsePayload);
