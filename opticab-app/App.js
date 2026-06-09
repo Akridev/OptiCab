@@ -1,7 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Alert, Keyboard, ScrollView } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
+
+// ─────────────────────────────────────────────
+// CONFIG — swap this to your live Vercel URL once deployed
+// ─────────────────────────────────────────────
+const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
 
 // 1. Define all supported apps in Singapore
 const AVAILABLE_APPS = ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
@@ -12,6 +17,7 @@ export default function App() {
   const [isPremium, setIsPremium] = useState(false); // Stripe checkout hook integration point
   const [isAutoPolling, setIsAutoPolling] = useState(false); // 30s background radar
   const [result, setResult] = useState(null);
+  const [resolvedCoords, setResolvedCoords] = useState(null); // Live GPS coords for deep links
 
   // 2. Track selected apps (Default: all checked)
   const [selectedApps, setSelectedApps] = useState(AVAILABLE_APPS);
@@ -27,31 +33,35 @@ export default function App() {
     }
   };
 
-  // 3. Unified Search Function (Passes selected filters to backend)
-  const handleSearchCommute = async (isBackgroundRefresh = false) => {
+  // 3. Unified Search Function — wrapped in useCallback to stabilise the radar useEffect dep
+  const handleSearchCommute = useCallback(async (isBackgroundRefresh = false) => {
     if (!promptText.trim()) return;
     if (!isBackgroundRefresh) setLoading(true);
 
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      let locationContext = "Geylang, Singapore"; // Fallback default
-      
+      let locationContext = '1.3048, 103.8318'; // Fallback: Geylang lat/lng
+      let coords = { lat: 1.3048, lng: 103.8318 };
+
       if (status === 'granted') {
         let loc = await Location.getCurrentPositionAsync({});
-        locationContext = `${loc.coords.latitude}, ${loc.coords.longitude}`;
+        coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+        locationContext = `${coords.lat}, ${coords.lng}`;
       }
 
-      // Call Vercel Agent API endpoint with explicit filters
-      const response = await fetch('https://vercel.app', {
+      // Store live coords so deep links can use them as pickup point
+      setResolvedCoords(coords);
+
+      const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userPrompt: promptText,
           currentGpsLocation: locationContext,
-          allowedApps: selectedApps // Pass array of checked apps to backend
+          allowedApps: selectedApps,
         }),
       });
-      
+
       const data = await response.json();
       setResult(data);
     } catch (err) {
@@ -62,7 +72,7 @@ export default function App() {
     } finally {
       if (!isBackgroundRefresh) setLoading(false);
     }
-  };
+  }, [promptText, selectedApps]); // useCallback deps — radar closure always gets fresh values
 
   // 4. Premium Automated 30-Second Background Radar Loop
   useEffect(() => {
@@ -73,28 +83,39 @@ export default function App() {
     }, 30000);
 
     return () => clearInterval(radarTimer);
-  }, [isPremium, isAutoPolling, result, selectedApps]);
+  }, [isPremium, isAutoPolling, result, handleSearchCommute]);
 
-  // 5. Broad-Scale Deep Linking Matrix
-  const launchDeepLink = (provider) => {
+  // 5. Deep Linking — uses live GPS coords as pickup, backend-resolved dropoff name
+  const launchDeepLink = (provider, dropoffName) => {
+    // Use live GPS if available, fall back to Geylang
+    const pickupLat = resolvedCoords?.lat ?? 1.3048;
+    const pickupLng = resolvedCoords?.lng ?? 103.8318;
+
+    // Dropoff: backend returns a place name string — encode it for URI use
+    // Provider apps resolve the name on their end; coordinates used where available
+    const encodedDropoff = encodeURIComponent(dropoffName || '');
+
     let url = '';
-    
-    // Official cross-platform production deep-link URI schemes mapping
+
     switch (provider.toLowerCase()) {
       case 'grab':
-        url = `grab://open?screenType=BOOKING&pickupLat=1.3164&pickupLng=103.8830&dropoffLat=1.3048&dropoffLng=103.8318`;
+        url = `grab://open?screenType=BOOKING&pickupLat=${pickupLat}&pickupLng=${pickupLng}&dropoffQuery=${encodedDropoff}`;
         break;
       case 'tada':
-        url = `tada://booking?pickup_lat=1.3164&pickup_lng=103.8830&dropoff_lat=1.3048&dropoff_lng=103.8318`;
+        url = `tada://booking?pickup_lat=${pickupLat}&pickup_lng=${pickupLng}&dropoff_query=${encodedDropoff}`;
         break;
       case 'gojek':
-        url = `gojek://goforward?service=GO_CAR&pickup=1.3164,103.8830&destination=1.3048,103.8318`;
+        url = `gojek://goforward?service=GO_CAR&pickup=${pickupLat},${pickupLng}&destination_query=${encodedDropoff}`;
         break;
       case 'ryde':
-        url = `ryde://booking?pickuplat=1.3164&pickuplng=103.8830&droplat=1.3048&droplng=103.8318`;
+        url = `ryde://booking?pickuplat=${pickupLat}&pickuplng=${pickupLng}&destination=${encodedDropoff}`;
         break;
       case 'comfortdelgro':
-        url = `cdgmobility://booking?pickup_lat=1.3164&pickup_lng=103.8830&dropoff_lat=1.3048&dropoff_lng=103.8318`;
+        url = `cdgmobility://booking?pickup_lat=${pickupLat}&pickup_lng=${pickupLng}&dropoff_query=${encodedDropoff}`;
+        break;
+      case 'walk (healthy option)':
+        // Walk card: open Apple/Google Maps walking directions instead
+        url = `https://www.google.com/maps/dir/?api=1&origin=${pickupLat},${pickupLng}&destination=${encodedDropoff}&travelmode=walking`;
         break;
       default:
         return;
@@ -126,14 +147,14 @@ export default function App() {
             returnKeyType="search"
           />
 
-          {/* 🗹 Checkbox Filter Matrix Segment */}
+          {/* Checkbox Filter Matrix */}
           <Text style={styles.filterTitle}>Select Apps to Compare:</Text>
           <View style={styles.checkboxContainer}>
             {AVAILABLE_APPS.map((app) => {
               const isChecked = selectedApps.includes(app);
               return (
-                <TouchableOpacity 
-                  key={app} 
+                <TouchableOpacity
+                  key={app}
                   style={[styles.checkbox, isChecked ? styles.checkboxChecked : styles.checkboxUnchecked]}
                   onPress={() => toggleAppSelection(app)}
                 >
@@ -147,65 +168,84 @@ export default function App() {
 
           {/* Actions Button Panel */}
           <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.submitBtn} onPress={() => { Keyboard.dismiss(); handleSearchCommute(false); }}>
+            <TouchableOpacity
+              style={styles.submitBtn}
+              onPress={() => { Keyboard.dismiss(); handleSearchCommute(false); }}
+            >
               {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Search Fares</Text>}
             </TouchableOpacity>
 
             {isPremium && result && (
-              <TouchableOpacity 
-                style={[styles.radarBtn, isAutoPolling ? styles.radarActive : styles.radarInactive]} 
+              <TouchableOpacity
+                style={[styles.radarBtn, isAutoPolling ? styles.radarActive : styles.radarInactive]}
                 onPress={() => setIsAutoPolling(!isAutoPolling)}
               >
-                <Text style={styles.radarBtnText(isAutoPolling)}>
+                <Text style={isAutoPolling ? styles.radarBtnTextActive : styles.radarBtnTextInactive}>
                   {isAutoPolling ? '📡 Radar: ON (30s)' : '🛰️ Start Auto-Radar'}
                 </Text>
               </TouchableOpacity>
             )}
           </View>
 
-          {/* Render this fallback block if the input is flagged as invalid or unrelated */}
-        {result && result.isInvalidInput && (
-          <View style={styles.alertBox}>
-            <Text style={[styles.alertText, { fontWeight: 'bold' }]}>{result.message}</Text>
-          </View>
-        )}
-
-        {/* Render the core comparison layout ONLY if the input is valid transport parameters */}
-        {result && !result.isInvalidInput && (
-          <View style={{ marginBottom: 100 }}>
-            <View style={styles.routeConfirm}>
-              <Text style={styles.confirmText}>🗺️ Destination Locked: {result.extractedRoute.dropoff}</Text>
+          {/* Invalid input warning block */}
+          {result && result.isInvalidInput && (
+            <View style={styles.alertBox}>
+              <Text style={[styles.alertText, { fontWeight: 'bold' }]}>{result.message}</Text>
             </View>
+          )}
 
-            {result.alerts?.length > 0 && (
-              <View style={styles.alertBox}>
-                <Text style={styles.alertTitle}>⚠️ Live Status Advisory</Text>
-                {result.alerts.map((alert, idx) => (
-                  <Text key={idx} style={styles.alertText}>• {alert}</Text>
-                ))}
+          {/* Core comparison layout */}
+          {result && !result.isInvalidInput && (
+            <View style={{ marginBottom: 100 }}>
+              <View style={styles.routeConfirm}>
+                <Text style={styles.confirmText}>🗺️ Destination Locked: {result.extractedRoute.dropoff}</Text>
               </View>
-            )}
 
-            <View style={styles.grid}>
-              <TouchableOpacity style={styles.card} onPress={() => launchDeepLink(result.cheapest.provider)}>
-                <Text style={styles.cardHeader}>💰 CHEAPEST</Text>
-                <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
-                <Text style={styles.provider}>{result.cheapest.provider}</Text>
-                <Text style={styles.tapToOpen}>Tap to open app →</Text>
-              </TouchableOpacity>
+              {result.alerts?.length > 0 && (
+                <View style={styles.alertBox}>
+                  <Text style={styles.alertTitle}>⚠️ Live Status Advisory</Text>
+                  {result.alerts.map((alert, idx) => (
+                    <Text key={idx} style={styles.alertText}>• {alert}</Text>
+                  ))}
+                </View>
+              )}
 
-              <TouchableOpacity style={styles.card} onPress={() => launchDeepLink(result.fastest.provider)}>
-                <Text style={styles.cardHeader}>⚡ FASTEST</Text>
-                <Text style={styles.price}>${result.fastest.price.toFixed(2)}</Text>
-                <Text style={styles.provider}>{result.fastest.provider}</Text>
-                <Text style={styles.tapToOpen}>Tap to open app →</Text>
-              </TouchableOpacity>
+              <View style={styles.grid}>
+                {/* Cheapest card — walk option is tappable (opens Maps), car opens ride app */}
+                <TouchableOpacity
+                  style={styles.card}
+                  onPress={() => launchDeepLink(result.cheapest.provider, result.extractedRoute.dropoff)}
+                >
+                  <Text style={styles.cardHeader}>💰 CHEAPEST</Text>
+                  <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
+                  <Text style={styles.provider}>{result.cheapest.provider}</Text>
+                  {result.cheapest.eta != null && (
+                    <Text style={styles.eta}>~{result.cheapest.eta} min</Text>
+                  )}
+                  <Text style={styles.tapToOpen}>
+                    {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps →' : 'Tap to open app →'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Fastest card */}
+                <TouchableOpacity
+                  style={styles.card}
+                  onPress={() => launchDeepLink(result.fastest.provider, result.extractedRoute.dropoff)}
+                >
+                  <Text style={styles.cardHeader}>⚡ FASTEST</Text>
+                  <Text style={styles.price}>${result.fastest.price.toFixed(2)}</Text>
+                  <Text style={styles.provider}>{result.fastest.provider}</Text>
+                  {result.fastest.eta != null && (
+                    <Text style={styles.eta}>~{result.fastest.eta} min</Text>
+                  )}
+                  <Text style={styles.tapToOpen}>Tap to open app →</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        )}
+          )}
         </ScrollView>
 
-        {/* Stripe Marketing Paywall Action Switch Footer */}
+        {/* Stripe Paywall Footer */}
         {!isPremium && (
           <TouchableOpacity style={styles.upgradeBtn} onPress={() => setIsPremium(true)}>
             <Text style={styles.upgradeText}>👑 Upgrade to unlock 30s Auto-Polling Radar</Text>
@@ -217,190 +257,207 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#FAFAFA', 
-    paddingHorizontal: 16, 
-    paddingTop: 40 
+  container: {
+    flex: 1,
+    backgroundColor: '#FAFAFA',
+    paddingHorizontal: 16,
+    paddingTop: 40,
   },
-  title: { 
-    fontSize: 34, 
-    fontWeight: '900', 
-    textAlign: 'center', 
-    color: '#111' 
+  title: {
+    fontSize: 34,
+    fontWeight: '900',
+    textAlign: 'center',
+    color: '#111',
   },
-  subtitle: { 
-    fontSize: 13, 
-    color: '#666', 
-    textAlign: 'center', 
-    marginBottom: 20, 
-    marginTop: 4 
+  subtitle: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    marginTop: 4,
   },
-  input: { 
-    backgroundColor: '#FFF', 
-    borderWidth: 1, 
-    borderColor: '#E5E5E5', 
-    borderRadius: 10, 
-    padding: 14, 
-    fontSize: 15, 
-    color: '#111' 
+  input: {
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: '#E5E5E5',
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 15,
+    color: '#111',
   },
-  filterTitle: { 
-    fontSize: 14, 
-    fontWeight: '700', 
-    color: '#333', 
-    marginTop: 16, 
-    marginBottom: 8 
+  filterTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
   },
-  checkboxContainer: { 
-    flexDirection: 'row', 
-    flexWrap: 'wrap', 
-    marginBottom: 4 
+  checkboxContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 4,
   },
-  checkbox: { 
-    paddingHorizontal: 12, 
-    paddingVertical: 8, 
-    borderRadius: 20, 
-    marginRight: 8, 
-    marginBottom: 8, 
-    borderWidth: 1 
+  checkbox: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 8,
+    marginBottom: 8,
+    borderWidth: 1,
   },
-  checkboxUnchecked: { 
-    backgroundColor: '#FFF', 
-    borderColor: '#DDD' 
+  checkboxUnchecked: {
+    backgroundColor: '#FFF',
+    borderColor: '#DDD',
   },
-  checkboxChecked: { 
-    backgroundColor: '#111', 
-    borderColor: '#111' 
+  checkboxChecked: {
+    backgroundColor: '#111',
+    borderColor: '#111',
   },
-  checkboxText: { 
-    fontSize: 12, 
-    fontWeight: '600' 
+  checkboxText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
-  textChecked: { 
-    color: '#FFF' 
+  textChecked: {
+    color: '#FFF',
   },
-  textUnchecked: { 
-    color: '#555' 
+  textUnchecked: {
+    color: '#555',
   },
-  buttonRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    marginTop: 8, 
-    marginBottom: 16 
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 16,
   },
-  submitBtn: { 
-    backgroundColor: '#111', 
-    flex: 1, 
-    padding: 14, 
-    borderRadius: 8, 
-    alignItems: 'center', 
-    justifyContent: 'center' 
+  submitBtn: {
+    backgroundColor: '#111',
+    flex: 1,
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  btnText: { 
-    color: '#FFF', 
-    fontWeight: '700', 
-    fontSize: 15 
+  btnText: {
+    color: '#FFF',
+    fontWeight: '700',
+    fontSize: 15,
   },
-  radarBtn: { 
-    flex: 1, 
-    padding: 14, 
-    borderRadius: 8, 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    marginLeft: 8 
+  radarBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
-  radarInactive: { 
-    backgroundColor: '#E8F0FE', 
-    borderWidth: 1, 
-    borderColor: '#1A73E8' 
+  radarInactive: {
+    backgroundColor: '#E8F0FE',
+    borderWidth: 1,
+    borderColor: '#1A73E8',
   },
-  radarActive: { 
-    backgroundColor: '#1A73E8' 
+  radarActive: {
+    backgroundColor: '#1A73E8',
   },
-  radarBtnText: (active) => ({ 
-    fontWeight: '700', 
-    fontSize: 14, 
-    color: active ? '#FFF' : '#1A73E8' 
-  }),
-  routeConfirm: { 
-    backgroundColor: '#F1F3F5', 
-    padding: 12, 
-    borderRadius: 8, 
-    marginBottom: 12 
+  // Split radarBtnText into two static styles — functions in StyleSheet aren't valid
+  radarBtnTextActive: {
+    fontWeight: '700',
+    fontSize: 14,
+    color: '#FFF',
   },
-  confirmText: { 
-    fontSize: 13, 
-    fontWeight: '600', 
-    color: '#495057', 
-    textAlign: 'center' 
+  radarBtnTextInactive: {
+    fontWeight: '700',
+    fontSize: 14,
+    color: '#1A73E8',
   },
-  alertBox: { 
-    backgroundColor: '#FFF3CD', 
-    borderLeftWidth: 4, 
-    borderLeftColor: '#FFC107', 
-    padding: 10, 
-    borderRadius: 6, 
-    marginBottom: 16 
+  routeConfirm: {
+    backgroundColor: '#F1F3F5',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
   },
-  alertTitle: { 
-    fontSize: 12, 
-    fontWeight: '700', 
-    color: '#856404', 
-    marginBottom: 4 
+  confirmText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#495057',
+    textAlign: 'center',
   },
-  alertText: { 
-    fontSize: 11, 
-    color: '#856404' 
+  alertBox: {
+    backgroundColor: '#FFF3CD',
+    borderLeftWidth: 4,
+    borderLeftColor: '#FFC107',
+    padding: 10,
+    borderRadius: 6,
+    marginBottom: 16,
   },
-  grid: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between' 
+  alertTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#856404',
+    marginBottom: 4,
   },
-  card: { 
-    backgroundColor: '#FFF', 
-    width: '48%', 
-    borderRadius: 14, 
-    padding: 16, 
-    borderWidth: 1, 
-    borderColor: '#EAEAEA', 
-    shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 2 }, 
-    shadowOpacity: 0.03, 
-    shadowRadius: 4, 
-    elevation: 2 
+  alertText: {
+    fontSize: 11,
+    color: '#856404',
   },
-  cardHeader: { 
-    fontSize: 11, 
-    fontWeight: '700', 
-    color: '#666', 
-    marginBottom: 8 
+  grid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
-  price: { 
-    fontSize: 28, 
-    fontWeight: '800', 
-    color: '#111' 
+  card: {
+    backgroundColor: '#FFF',
+    width: '48%',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#EAEAEA',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  provider: { 
-    fontSize: 14, 
-    color: '#444', 
-    marginTop: 2, 
-    fontWeight: '600' 
+  cardHeader: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#666',
+    marginBottom: 8,
   },
-  tapToOpen: { 
-    fontSize: 10, 
-    color: '#007BFF', 
-    marginTop: 14, 
-    fontWeight: '600' 
+  price: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#111',
   },
-  upgradeBtn: { 
-    backgroundColor: '#1A73E8', 
-    padding: 15, 
-    borderRadius: 10, 
-    alignItems: 'center', 
-    position: 'absolute', 
-    bottom: 30, 
-    left: 16, 
-    right: 16 
-  }
+  provider: {
+    fontSize: 14,
+    color: '#444',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  eta: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  tapToOpen: {
+    fontSize: 10,
+    color: '#007BFF',
+    marginTop: 14,
+    fontWeight: '600',
+  },
+  upgradeBtn: {
+    backgroundColor: '#1A73E8',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    position: 'absolute',
+    bottom: 30,
+    left: 16,
+    right: 16,
+  },
+  upgradeText: {
+    color: '#FFF',
+    fontWeight: '700',
+    fontSize: 14,
+  },
 });

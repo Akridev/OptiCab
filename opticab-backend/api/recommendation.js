@@ -1,7 +1,7 @@
 // opticab-backend/api/recommendation.js
 import Exa from 'exa-js';
 import { generateText } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { groq } from '@ai-sdk/groq';
 
 const exa = new Exa(process.env.EXA_API_KEY);
 
@@ -18,7 +18,7 @@ export default async function handler(req, res) {
   try {
     // 1. Guard Step: Is this an actual transit/commute request or garbage input?
     const { text: classificationOutput } = await generateText({
-      model: openai('gpt-4o-mini'),
+      model: groq('llama-3.1-8b-instant'),
       system: `You are the safety gatekeeper for OptiCab Singapore. Analyze the user prompt. 
                Determine if the input is a genuine request to travel somewhere, catch a ride, or navigate to a destination.
                If it is completely unrelated (e.g., math questions, cooking recipes, general chit-chat, nonsense characters), 
@@ -35,7 +35,7 @@ export default async function handler(req, res) {
 
     // 2. Intrinsic Route Parsing (If the prompt is VALID)
     const { text: llmOutput } = await generateText({
-      model: openai('gpt-4o-mini'),
+      model: groq('llama-3.1-8b-instant'),
       system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
                Estimate the approximate distance in kilometers between pickup and dropoff.
                Return ONLY a valid raw JSON object with keys: "dropoff", "distanceKm". Do not wrap in markdown boxes.`,

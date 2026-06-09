@@ -1,15 +1,8 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/recommendation.js",
-      "use": "@vercel/node"
+  "functions": {
+    "api/recommendation.js": {
+      "maxDuration": 30
     }
-  ],
-  "routes": [
-    {
-      "src": "/api/recommendation",
-      "dest": "/api/recommendation.js"
-    }
-  ]
+  }
 }

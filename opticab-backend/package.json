@@ -9,9 +9,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.68",
+    "@ai-sdk/groq": "^1.2.9",
     "ai": "^6.0.198",
     "exa-js": "^2.13.0"
   }
