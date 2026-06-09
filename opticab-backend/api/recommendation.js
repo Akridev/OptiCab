@@ -286,7 +286,7 @@ export default async function handler(req, res) {
                - "passengers": number of passengers (default 1 if not mentioned). Count adults + children + babies.
                - "needsBabySeat": true if user mentions baby, infant, toddler, child, kid, or any child aged 7 or below (default false). If all children mentioned are aged 8 or above, set this to false \u2014 they do not need a child seat.
                - "needsLargeVehicle": true if passengers > 4 or user mentions 6-seater, 7-seater, large vehicle, MPV, van (default false)
-               - "childAges": array of integers representing the ages of each child/baby/infant/toddler mentioned. Use context clues: "baby" = 1, "infant" = 0, "toddler" = 2. If user says "4 year old" put [4]. If "1 baby and 1 4 year old" put [1, 4]. If no children mentioned, return empty array [].
+               - "childAges": array of integers representing the ages of each child/baby/infant/toddler mentioned. Use context clues: "baby" = 1, "infant" = 0, "toddler" = 2. If user says "4 year old" put [4]. If "1 baby and 1 4 year old" put [1, 4]. If no children mentioned, return empty array []. IMPORTANT: If user says "baby 9 years old" or "kid 8 years old", the AGE overrides the word — put [9] or [8], NOT the default age for "baby". The explicit age always wins.
                Return ONLY a valid raw JSON object. Do not wrap in markdown boxes.`,
       prompt: `Current Location Context (GPS): ${currentGpsLocation}. User Request: "${enrichedPrompt}"`,
     });
@@ -297,15 +297,25 @@ export default async function handler(req, res) {
     const needsBabySeat = parsedContext.needsBabySeat === true;
     const needsLargeVehicle = parsedContext.needsLargeVehicle === true || passengers > 4;
     const childAges = Array.isArray(parsedContext.childAges) ? parsedContext.childAges.filter(a => typeof a === 'number') : [];
+
+    // Fallback: if LLM returned needsBabySeat but empty childAges, try to extract ages from raw input
+    // This catches cases like "baby 9 years old" where LLM ignores the explicit age
+    let effectiveChildAges = childAges;
+    if (needsBabySeat && childAges.length === 0) {
+      const ageMatches = userPrompt.match(/(\d+)\s*(?:year|yr|y\.?o)/gi);
+      if (ageMatches) {
+        effectiveChildAges = ageMatches.map(m => parseInt(m.match(/\d+/)[0])).filter(a => a >= 0 && a <= 17);
+      }
+    }
     const resolvedPickup = parsedContext.pickup || currentGpsLocation;
 
     // Smart child seat tier logic
     let childSeatTier = 'none';
     if (needsBabySeat) {
-      if (childAges.length === 0) {
+      if (effectiveChildAges.length === 0) {
         childSeatTier = 'age1to7';
       } else {
-        const youngestChild = Math.min(...childAges);
+        const youngestChild = Math.min(...effectiveChildAges);
         if (youngestChild >= 8) childSeatTier = 'none';
         else if (youngestChild >= 4) childSeatTier = 'age4to7';
         else childSeatTier = 'age1to7';
@@ -534,7 +544,7 @@ export default async function handler(req, res) {
     if (hasSocialCongestion) alerts.push("\uD83D\uDCE1 Drivers reporting active gridlock in the area (social feeds).");
     if (dropoffTips.length > 0) alerts.push(`\uD83D\uDCCD Drop-off tip: ${dropoffTips[0].slice(0, 120)}`);
     if (effectiveNeedsBabySeat) { const tierLabel = childSeatTier === 'age4to7' ? 'Age 4\u20137 (cheaper tier)' : 'Age 1\u20133'; alerts.push(`\uD83D\uDC76 Child seat requested (${tierLabel}) \u2014 showing only providers with child seat support.`); }
-    else if (needsBabySeat && childAges.length > 0 && Math.min(...childAges) >= 8) { alerts.push("\uD83D\uDC66 Child is 8+ \u2014 no child seat required by law. Booking standard car to save cost."); }
+    else if (needsBabySeat && effectiveChildAges.length > 0 && Math.min(...effectiveChildAges) >= 8) { alerts.push("\uD83D\uDC66 Child is 8+ \u2014 no child seat required by law. Booking standard car to save cost."); }
     if (needsLargeVehicle) alerts.push(`\uD83D\uDE90 ${passengers} passengers \u2014 showing 6/7-seater options (higher fare applies).`);
 
     const finalCheapest = [...optionsPool].sort((a, b) => a.price - b.price)[0];
