@@ -15,16 +15,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Look up customer by device ID metadata
-    const customers = await stripe.customers.list({ metadata: { deviceId }, limit: 1 });
+    // Search for customer by device ID metadata
+    const searchResult = await stripe.customers.search({
+      query: `metadata["deviceId"]:"${deviceId}"`,
+      limit: 1,
+    });
 
-    if (customers.data.length === 0) {
+    if (searchResult.data.length === 0) {
       return res.status(200).json({ isPremium: false });
     }
 
+    const customerId = searchResult.data[0].id;
+
     // Check for active subscriptions on this customer
     const subscriptions = await stripe.subscriptions.list({
-      customer: customers.data[0].id,
+      customer: customerId,
       status: 'active',
       limit: 1,
     });
@@ -40,7 +45,7 @@ export default async function handler(req, res) {
 
     // Also check trialing status
     const trialSubs = await stripe.subscriptions.list({
-      customer: customers.data[0].id,
+      customer: customerId,
       status: 'trialing',
       limit: 1,
     });

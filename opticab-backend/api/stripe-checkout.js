@@ -15,12 +15,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Create or retrieve a Stripe customer by device ID
-    const customers = await stripe.customers.list({ metadata: { deviceId }, limit: 1 });
+    // Search for existing customer by device ID metadata
     let customer;
+    const searchResult = await stripe.customers.search({
+      query: `metadata["deviceId"]:"${deviceId}"`,
+      limit: 1,
+    });
 
-    if (customers.data.length > 0) {
-      customer = customers.data[0];
+    if (searchResult.data.length > 0) {
+      customer = searchResult.data[0];
     } else {
       customer = await stripe.customers.create({
         metadata: { deviceId },
@@ -32,10 +35,9 @@ export default async function handler(req, res) {
     const session = await stripe.checkout.sessions.create({
       customer: customer.id,
       mode: 'subscription',
-      payment_method_types: ['card'],
       line_items: [
         {
-          price: process.env.STRIPE_PRICE_ID, // Monthly subscription price ID from Stripe Dashboard
+          price: process.env.STRIPE_PRICE_ID,
           quantity: 1,
         },
       ],
