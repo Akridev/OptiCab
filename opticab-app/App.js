@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Alert, Keyboard, ScrollView, Platform, Modal } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
@@ -58,6 +58,7 @@ export default function App() {
   const [savedRoutes, setSavedRoutes] = useState([]);
   const [rideHistory, setRideHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const scrollViewRef = useRef(null);
 
   // Get or generate a stable device ID
   useEffect(() => {
@@ -341,6 +342,12 @@ export default function App() {
 
       const data = await response.json();
       setResult(data);
+      // Auto-scroll to results
+      if (!isBackgroundRefresh && data && !data.isInvalidInput) {
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 300);
+      }
       // Auto-save to history (non-blocking)
       if (!isBackgroundRefresh && data && !data.isInvalidInput && data.extractedRoute) {
         saveToHistory(data);
@@ -410,7 +417,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView showsVerticalScrollIndicator={false} ref={scrollViewRef}>
           <Text style={styles.title}>OptiCab</Text>
           <Text style={styles.subtitle}>Conversational Commute Assistant</Text>
 
