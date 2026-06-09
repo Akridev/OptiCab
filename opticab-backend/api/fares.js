@@ -123,7 +123,7 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
-    const { pickupLocation, dropoffLocation, distanceKmOverride } = body;
+    const { pickupLocation, dropoffLocation, distanceKmOverride, needsLargeVehicle } = body;
 
     let distanceKm;
     if (distanceKmOverride && typeof distanceKmOverride === 'number') {
@@ -141,14 +141,22 @@ export default async function handler(req, res) {
     distanceKm = Math.max(0.5, Math.min(50, distanceKm));
     const sgHour = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Singapore' })).getHours();
 
+    // Large vehicle multiplier (6/7-seater MPV pricing is ~1.5x standard sedan)
+    const vehicleMultiplier = needsLargeVehicle ? 1.5 : 1.0;
+
+    const applyVehicleMultiplier = (fareResult) => ({
+      ...fareResult,
+      estimatedFare: parseFloat((fareResult.estimatedFare * vehicleMultiplier).toFixed(2)),
+    });
+
     const responsePayload = {
       distanceKm: parseFloat(distanceKm.toFixed(2)),
       sgHour,
-      grab: calculateFare('grab', distanceKm, sgHour),
-      tada: calculateFare('tada', distanceKm, sgHour),
-      gojek: calculateFare('gojek', distanceKm, sgHour),
-      ryde: calculateFare('ryde', distanceKm, sgHour),
-      cdg: calculateFare('cdg', distanceKm, sgHour),
+      grab: applyVehicleMultiplier(calculateFare('grab', distanceKm, sgHour)),
+      tada: applyVehicleMultiplier(calculateFare('tada', distanceKm, sgHour)),
+      gojek: applyVehicleMultiplier(calculateFare('gojek', distanceKm, sgHour)),
+      ryde: applyVehicleMultiplier(calculateFare('ryde', distanceKm, sgHour)),
+      cdg: applyVehicleMultiplier(calculateFare('cdg', distanceKm, sgHour)),
     };
 
     return res.status(200).json(responsePayload);
