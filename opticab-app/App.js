@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Alert, Keyboard, ScrollView, Platform, Modal } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
@@ -525,7 +525,7 @@ export default function App() {
                       <Text style={styles.carType}>ðŸš˜ {result.cheapest.carType}</Text>
                     )}
                     {result.cheapest.eta != null && (
-                      <Text style={styles.timing}>ðŸš— Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
+                      <Text style={styles.timing}>ðŸš- Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
                     )}
                     {result.cheapest.rideDuration != null && (
                       <Text style={styles.timing}>ðŸ“ Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
@@ -549,7 +549,7 @@ export default function App() {
                       <Text style={styles.carType}>ðŸš˜ {result.cheapest.carType}</Text>
                     )}
                     {result.cheapest.eta != null && (
-                      <Text style={styles.timing}>ðŸš— Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
+                      <Text style={styles.timing}>ðŸš- Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
                     )}
                     {result.cheapest.rideDuration != null && (
                       <Text style={styles.timing}>ðŸ“ Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
@@ -570,7 +570,7 @@ export default function App() {
                       <Text style={styles.carType}>ðŸš˜ {result.fastest.carType}</Text>
                     )}
                     {result.fastest.eta != null && (
-                      <Text style={styles.timing}>ðŸš— Pickup: {result.fastest.eta} min ({getTimeString(result.fastest.eta)})</Text>
+                      <Text style={styles.timing}>ðŸš- Pickup: {result.fastest.eta} min ({getTimeString(result.fastest.eta)})</Text>
                     )}
                     {result.fastest.rideDuration != null && (
                       <Text style={styles.timing}>ðŸ“ Dropoff: {result.fastest.rideDuration} min ({getTimeString(result.fastest.eta + result.fastest.rideDuration)})</Text>
