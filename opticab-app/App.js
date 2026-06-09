@@ -11,6 +11,14 @@ const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
 // 1. Define all supported apps in Singapore
 const AVAILABLE_APPS = ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
 
+// Helper: compute clock time from now + minutes offset (Singapore time)
+const getTimeString = (minutesFromNow) => {
+  const now = new Date();
+  const sg = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));
+  sg.setMinutes(sg.getMinutes() + minutesFromNow);
+  return sg.toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: true });
+};
+
 // Helper: extract display name from dropoff (handles both string and object from backend)
 const getDropoffName = (dropoff) => {
   if (!dropoff) return '';
@@ -218,7 +226,7 @@ export default function App() {
               )}
 
               <View style={styles.grid}>
-                {/* Cheapest card — walk option is tappable (opens Maps), car opens ride app */}
+                {/* Cheapest card */}
                 <TouchableOpacity
                   style={styles.card}
                   onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}
@@ -227,7 +235,10 @@ export default function App() {
                   <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
                   <Text style={styles.provider}>{result.cheapest.provider}</Text>
                   {result.cheapest.eta != null && (
-                    <Text style={styles.eta}>~{result.cheapest.eta} min</Text>
+                    <Text style={styles.timing}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
+                  )}
+                  {result.cheapest.rideDuration != null && (
+                    <Text style={styles.timing}>📍 Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
                   )}
                   <Text style={styles.tapToOpen}>
                     {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps →' : 'Tap to open app →'}
@@ -243,7 +254,10 @@ export default function App() {
                   <Text style={styles.price}>${result.fastest.price.toFixed(2)}</Text>
                   <Text style={styles.provider}>{result.fastest.provider}</Text>
                   {result.fastest.eta != null && (
-                    <Text style={styles.eta}>~{result.fastest.eta} min</Text>
+                    <Text style={styles.timing}>🚗 Pickup: {result.fastest.eta} min ({getTimeString(result.fastest.eta)})</Text>
+                  )}
+                  {result.fastest.rideDuration != null && (
+                    <Text style={styles.timing}>📍 Dropoff: {result.fastest.rideDuration} min ({getTimeString(result.fastest.eta + result.fastest.rideDuration)})</Text>
                   )}
                   <Text style={styles.tapToOpen}>Tap to open app →</Text>
                 </TouchableOpacity>
@@ -440,9 +454,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: '600',
   },
-  eta: {
-    fontSize: 12,
-    color: '#888',
+  timing: {
+    fontSize: 11,
+    color: '#555',
     marginTop: 4,
     fontWeight: '500',
   },

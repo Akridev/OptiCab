@@ -106,6 +106,7 @@ function calculateFare(providerKey, distanceKm, sgHour) {
   return {
     estimatedFare: parseFloat(finalFare.toFixed(2)),
     baseEtaMinutes: computeEta(providerKey, distanceKm, surge),
+    rideDurationMinutes: estimatedRideMinutes,
     surgeMultiplier: surge,
     breakdown: {
       baseFare: config.baseFare,
