@@ -174,6 +174,47 @@ function sanitizeDisplayName(name, fallback = 'Unknown location') {
 }
 
 // ─────────────────────────────────────────────
+// OneMap Routing: Actual driving distance & duration
+// ─────────────────────────────────────────────
+
+let cachedToken = null;
+let tokenExpiry = 0;
+
+async function getOneMapToken() {
+  // Reuse token if still valid (tokens last 3 days, we refresh after 2)
+  if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
+
+  const tokenRes = await fetch('https://www.onemap.gov.sg/api/auth/post/getToken', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: process.env.ONEMAP_EMAIL, password: process.env.ONEMAP_PASSWORD }),
+  });
+  const tokenData = await tokenRes.json();
+  cachedToken = tokenData.access_token;
+  // Refresh after 2 days (token valid for 3)
+  tokenExpiry = Date.now() + 2 * 24 * 60 * 60 * 1000;
+  return cachedToken;
+}
+
+async function getDrivingDistance(startLat, startLng, endLat, endLng) {
+  // OneMap Routing API — returns actual road distance and estimated drive time
+  const token = await getOneMapToken();
+  const url = `https://www.onemap.gov.sg/api/public/routingsvc/route?start=${startLat},${startLng}&end=${endLat},${endLng}&routeType=drive`;
+  const response = await fetch(url, {
+    headers: { Authorization: token },
+  });
+  const data = await response.json();
+
+  if (data.route_summary) {
+    return {
+      distanceKm: parseFloat((data.route_summary.total_distance / 1000).toFixed(2)),
+      durationMin: Math.round(data.route_summary.total_time / 60),
+    };
+  }
+  return null; // Routing failed — caller should fall back
+}
+
+// ─────────────────────────────────────────────
 // Main Handler
 // ─────────────────────────────────────────────
 
@@ -243,7 +284,7 @@ export default async function handler(req, res) {
     });
 
     const parsedContext = JSON.parse(llmOutput.trim());
-    const targetDistance = parseFloat(parsedContext.distanceKm);
+    let targetDistance = parseFloat(parsedContext.distanceKm); // LLM fallback estimate
     const passengers = parseInt(parsedContext.passengers) || 1;
     const needsBabySeat = parsedContext.needsBabySeat === true;
     const needsLargeVehicle = parsedContext.needsLargeVehicle === true || passengers > 4;
@@ -330,14 +371,7 @@ export default async function handler(req, res) {
       // It's coordinates — reverse geocode via OneMap
       try {
         const [lat, lng] = resolvedPickup.split(',').map(s => s.trim());
-        // Get OneMap token for auth
-        const tokenRes = await fetch('https://www.onemap.gov.sg/api/auth/post/getToken', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: process.env.ONEMAP_EMAIL, password: process.env.ONEMAP_PASSWORD }),
-        });
-        const tokenData = await tokenRes.json();
-        const token = tokenData.access_token;
+        const token = await getOneMapToken();
 
         const revGeoResponse = await fetch(
           `https://www.onemap.gov.sg/api/public/revgeocode?location=${lat},${lng}&buffer=100&addressType=All`,
@@ -361,6 +395,55 @@ export default async function handler(req, res) {
       } catch {
         // Keep coordinates as fallback if OneMap is unavailable
       }
+    }
+
+    // ─── Actual Driving Distance via OneMap Routing ───
+    // Resolve pickup coordinates
+    let pickupLat = null, pickupLng = null;
+    if (/^\d+\.\d+,\s*\d+\.\d+$/.test(resolvedPickup)) {
+      // GPS coordinates
+      [pickupLat, pickupLng] = resolvedPickup.split(',').map(s => parseFloat(s.trim()));
+    } else if (postalCodes.length >= 1 && resolvedPostals[postalCodes[0]] && parsedContext.pickup) {
+      // First postal code is the pickup
+      pickupLat = resolvedPostals[postalCodes[0]].lat;
+      pickupLng = resolvedPostals[postalCodes[0]].lng;
+    }
+
+    // Resolve dropoff coordinates
+    let dropoffLat = null, dropoffLng = null;
+    if (postalCodes.length >= 2 && resolvedPostals[postalCodes[1]]) {
+      dropoffLat = resolvedPostals[postalCodes[1]].lat;
+      dropoffLng = resolvedPostals[postalCodes[1]].lng;
+    } else if (postalCodes.length === 1 && !parsedContext.pickup && resolvedPostals[postalCodes[0]]) {
+      dropoffLat = resolvedPostals[postalCodes[0]].lat;
+      dropoffLng = resolvedPostals[postalCodes[0]].lng;
+    } else {
+      // Try resolving dropoff name via OneMap search for coordinates
+      try {
+        const dropoffQuery = typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : '';
+        if (dropoffQuery) {
+          const geoRes = await fetch(
+            `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(dropoffQuery)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
+          );
+          const geoData = await geoRes.json();
+          if (geoData.results && geoData.results.length > 0) {
+            dropoffLat = parseFloat(geoData.results[0].LATITUDE);
+            dropoffLng = parseFloat(geoData.results[0].LONGITUDE);
+          }
+        }
+      } catch { /* fall back to LLM estimate */ }
+    }
+
+    // Calculate actual road distance if both coordinates are available
+    let rideDurationFromRouting = null;
+    if (pickupLat && pickupLng && dropoffLat && dropoffLng) {
+      try {
+        const routeResult = await getDrivingDistance(pickupLat, pickupLng, dropoffLat, dropoffLng);
+        if (routeResult) {
+          targetDistance = routeResult.distanceKm;
+          rideDurationFromRouting = routeResult.durationMin;
+        }
+      } catch { /* fall back to LLM estimate */ }
     }
 
     const faresPromise = fetch('https://opticab-backend.vercel.app/api/fares', {
@@ -416,11 +499,11 @@ export default async function handler(req, res) {
       const walkTime = Math.round(targetDistance * 12);
 
       const carOptions = [];
-      if (activePlatforms.includes('Grab')) carOptions.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: fareMatrix.grab.rideDurationMinutes, carType: 'JustGrab 4-Seater' });
-      if (activePlatforms.includes('TADA')) carOptions.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: fareMatrix.tada.rideDurationMinutes, carType: 'TADA Standard 4-Seater' });
-      if (activePlatforms.includes('Gojek')) carOptions.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: fareMatrix.gojek.rideDurationMinutes, carType: 'GoCar 4-Seater' });
-      if (activePlatforms.includes('Ryde')) carOptions.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: fareMatrix.ryde.rideDurationMinutes, carType: 'RydeX 4-Seater' });
-      if (activePlatforms.includes('ComfortDelGro')) carOptions.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: fareMatrix.cdg.rideDurationMinutes, carType: 'ComfortRIDE 4-Seater' });
+      if (activePlatforms.includes('Grab')) carOptions.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.grab.rideDurationMinutes, carType: 'JustGrab 4-Seater' });
+      if (activePlatforms.includes('TADA')) carOptions.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.tada.rideDurationMinutes, carType: 'TADA Standard 4-Seater' });
+      if (activePlatforms.includes('Gojek')) carOptions.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.gojek.rideDurationMinutes, carType: 'GoCar 4-Seater' });
+      if (activePlatforms.includes('Ryde')) carOptions.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.ryde.rideDurationMinutes, carType: 'RydeX 4-Seater' });
+      if (activePlatforms.includes('ComfortDelGro')) carOptions.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.cdg.rideDurationMinutes, carType: 'ComfortRIDE 4-Seater' });
 
       const sortedFastestCar = carOptions.sort((a, b) => a.eta - b.eta)[0];
 
@@ -502,11 +585,11 @@ export default async function handler(req, res) {
     }
 
     let optionsPool = [];
-    if (activePlatforms.includes('Grab')) optionsPool.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: fareMatrix.grab.rideDurationMinutes, carType: getCarType('Grab') });
-    if (activePlatforms.includes('TADA')) optionsPool.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: fareMatrix.tada.rideDurationMinutes, carType: getCarType('TADA') });
-    if (activePlatforms.includes('Gojek')) optionsPool.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: fareMatrix.gojek.rideDurationMinutes, carType: getCarType('Gojek') });
-    if (activePlatforms.includes('Ryde')) optionsPool.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: fareMatrix.ryde.rideDurationMinutes, carType: getCarType('Ryde') });
-    if (activePlatforms.includes('ComfortDelGro')) optionsPool.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: fareMatrix.cdg.rideDurationMinutes, carType: getCarType('ComfortDelGro') });
+    if (activePlatforms.includes('Grab')) optionsPool.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.grab.rideDurationMinutes, carType: getCarType('Grab') });
+    if (activePlatforms.includes('TADA')) optionsPool.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.tada.rideDurationMinutes, carType: getCarType('TADA') });
+    if (activePlatforms.includes('Gojek')) optionsPool.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.gojek.rideDurationMinutes, carType: getCarType('Gojek') });
+    if (activePlatforms.includes('Ryde')) optionsPool.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.ryde.rideDurationMinutes, carType: getCarType('Ryde') });
+    if (activePlatforms.includes('ComfortDelGro')) optionsPool.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.cdg.rideDurationMinutes, carType: getCarType('ComfortDelGro') });
 
     if (effectiveNeedsBabySeat) {
       optionsPool = optionsPool.filter(opt => PROVIDER_FEATURES[opt.provider]?.babySeat);
