@@ -1,13 +1,8 @@
 // api/stripe-webhook.js
 // Handles Stripe webhook events for subscription lifecycle
-// Configure this endpoint in Stripe Dashboard: https://dashboard.stripe.com/webhooks
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-// In-memory store for demo (replace with a database in production)
-// For production: use Vercel KV, Upstash Redis, or a DB
-const activeSubscriptions = global._activeSubscriptions || (global._activeSubscriptions = new Map());
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -16,7 +11,6 @@ export default async function handler(req, res) {
   let event;
 
   try {
-    // Get raw body for signature verification
     const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     event = stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
@@ -25,47 +19,37 @@ export default async function handler(req, res) {
   }
 
   switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object;
-      if (session.mode === 'subscription') {
-        const subscription = await stripe.subscriptions.retrieve(session.subscription);
-        const deviceId = subscription.metadata.deviceId;
-        if (deviceId) {
-          activeSubscriptions.set(deviceId, {
-            subscriptionId: subscription.id,
+    case 'payment_intent.succeeded': {
+      const paymentIntent = event.data.object;
+      // If this is an OptiCab premium payment, create the subscription
+      if (paymentIntent.metadata?.type === 'opticab_premium_subscription' && paymentIntent.customer) {
+        try {
+          // Check if customer already has an active subscription
+          const existingSubs = await stripe.subscriptions.list({
+            customer: paymentIntent.customer,
             status: 'active',
-            currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
+            limit: 1,
           });
+          if (existingSubs.data.length === 0) {
+            // Create the subscription (first payment already collected)
+            await stripe.subscriptions.create({
+              customer: paymentIntent.customer,
+              items: [{ price: process.env.STRIPE_PRICE_ID }],
+            });
+          }
+        } catch (err) {
+          console.error('Failed to create subscription after payment:', err);
         }
       }
       break;
     }
 
-    case 'customer.subscription.updated': {
-      const subscription = event.data.object;
-      const deviceId = subscription.metadata.deviceId;
-      if (deviceId) {
-        activeSubscriptions.set(deviceId, {
-          subscriptionId: subscription.id,
-          status: subscription.status,
-          currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
-        });
-      }
-      break;
-    }
-
     case 'customer.subscription.deleted': {
-      const subscription = event.data.object;
-      const deviceId = subscription.metadata.deviceId;
-      if (deviceId) {
-        activeSubscriptions.delete(deviceId);
-      }
+      // Subscription cancelled — nothing to do server-side for now
+      // The subscription-status endpoint checks live status from Stripe
       break;
     }
   }
 
   return res.status(200).json({ received: true });
 }
-
-// Export for subscription-status endpoint to access
-export { activeSubscriptions };

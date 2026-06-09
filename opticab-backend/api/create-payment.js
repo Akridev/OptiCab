@@ -31,19 +31,18 @@ export default async function handler(req, res) {
       });
     }
 
-    // Create a subscription with incomplete status (pending payment)
-    const subscription = await stripe.subscriptions.create({
+    // Create a PaymentIntent directly (simpler than subscription for initial setup)
+    // Once payment succeeds, the webhook will create/activate the subscription
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: 299, // $2.99 SGD in cents
+      currency: 'sgd',
       customer: customer.id,
-      items: [{ price: process.env.STRIPE_PRICE_ID }],
-      payment_behavior: 'default_incomplete',
-      expand: ['latest_invoice.payment_intent'],
+      metadata: { deviceId, type: 'opticab_premium_subscription' },
+      automatic_payment_methods: { enabled: true },
     });
-
-    const paymentIntent = subscription.latest_invoice.payment_intent;
 
     return res.status(200).json({
       clientSecret: paymentIntent.client_secret,
-      subscriptionId: subscription.id,
       publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
     });
   } catch (error) {
