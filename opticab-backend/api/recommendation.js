@@ -56,18 +56,6 @@ async function getExaTransportAlerts(dropoffName) {
 }
 
 // Layer 4: Building-specific drop-off intelligence
-async function getDropoffIntel(dropoffName) {
-  const result = await exa.search(
-    `Best pickup point lobby drop-off advice taxi drivers at ${dropoffName} Singapore`,
-    {
-      type: "keyword",
-      numResults: 1,
-      includeDomains: ["reddit.com", "hardwarezone.com.sg", "tripadvisor.com"],
-      contents: { highlights: true },
-    }
-  ).catch(() => ({ results: [] }));
-  return result;
-}
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // LTA DataMall: Real-time traffic incidents
@@ -498,13 +486,6 @@ export default async function handler(req, res) {
     const exaPromise = getExaTransportAlerts(
       typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
     ).catch(() => ({ socialResults: { results: [] }, mrtResults: { results: [] }, eventResults: { results: [] } }));
-    const dropoffIntelPromise = getDropoffIntel(
-      typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
-    ).catch(() => ({ results: [] }));
-
-    const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers, dropoffIntel] = await Promise.all([
-      faresPromise, ltaPromise, weatherPromise, exaPromise, dropoffIntelPromise
-    ]);
 
     // â•â•â• PHASE 5: Analysis & Response â•â•â•
     const pickupCoords = (pickupLat && pickupLng) ? { lat: pickupLat, lng: pickupLng } : null;
@@ -618,7 +599,6 @@ export default async function handler(req, res) {
     const socialHighlights = exaLayers.socialResults?.results?.flatMap(r => r.highlights) || [];
     const mrtHighlights = exaLayers.mrtResults?.results?.flatMap(r => r.highlights) || [];
     const eventHighlights = exaLayers.eventResults?.results?.flatMap(r => r.highlights) || [];
-    const dropoffTips = dropoffIntel?.results?.flatMap(r => r.highlights) || [];
 
     const hasMrtDisruption = mrtHighlights.some(h => /disruption|delay|breakdown|fault/i.test(h));
     const hasEventSurge = eventHighlights.length > 0;
@@ -638,7 +618,6 @@ export default async function handler(req, res) {
     if (hasMrtDisruption) { alerts.push(`\uD83D\uDE86 Train disruption detected: ${mrtHighlights[0]?.slice(0, 120) || 'MRT line affected'} \u2014 expect surge pricing and longer waits.`); }
     if (hasEventSurge) { alerts.push(`\uD83C\uDFDF\uFE0F Predicted surge: ${eventHighlights[0]?.slice(0, 100) || 'Major event nearby'} \u2014 high demand expected.`); }
     if (hasSocialCongestion) alerts.push("\uD83D\uDCE1 Drivers reporting active gridlock in the area (social feeds).");
-    if (dropoffTips.length > 0) alerts.push(`\uD83D\uDCCD Drop-off tip: ${dropoffTips[0].slice(0, 120)}`);
     if (effectiveNeedsBabySeat) { const tierLabel = childSeatTier === 'age4to7' ? 'Age 4\u20137 (cheaper tier)' : 'Age 1\u20133'; alerts.push(`\uD83D\uDC76 Child seat requested (${tierLabel}) \u2014 showing only providers with child seat support.`); }
     else if (needsBabySeat && effectiveChildAges.length > 0 && Math.min(...effectiveChildAges) >= 8) { alerts.push("\uD83D\uDC66 Child is 8+ \u2014 no child seat required by law. Booking standard car to save cost."); }
     if (needsLargeVehicle) alerts.push(`\uD83D\uDE90 ${passengers} passengers \u2014 showing 6/7-seater options (higher fare applies).`);
@@ -660,5 +639,6 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Agent engine failed to map parameters.", details: error.message });
   }
 }
+
 
 
