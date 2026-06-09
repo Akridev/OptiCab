@@ -10,48 +10,48 @@
 
 const FARE_CONFIG = {
   grab: {
-    baseFare: 3.00,       // Flag-fall (SGD)
-    perKmRate: 0.55,      // Per km after first km
-    perMinRate: 0.22,     // Per minute of ride time
-    bookingFee: 1.00,     // Platform booking fee
-    minFare: 5.00,        // Minimum chargeable fare
-    baseEta: 4,           // Base ETA in minutes (largest fleet = fastest avg)
-    surgeCapMultiplier: 3.0,
-  },
-  tada: {
-    baseFare: 2.80,       // TADA runs zero-commission, slightly cheaper base
-    perKmRate: 0.50,
-    perMinRate: 0.20,
-    bookingFee: 0.00,     // TADA's key differentiator: no booking fee
-    minFare: 4.50,
-    baseEta: 6,           // Smaller fleet than Grab
-    surgeCapMultiplier: 2.0, // TADA caps surge more aggressively
-  },
-  gojek: {
-    baseFare: 2.90,
-    perKmRate: 0.52,
-    perMinRate: 0.21,
-    bookingFee: 0.80,
-    minFare: 4.80,
-    baseEta: 5,
+    baseFare: 4.80,       // Flag-fall (SGD)
+    perKmRate: 1.20,      // Per km after first km
+    perMinRate: 0.30,     // Per minute of ride time
+    bookingFee: 2.00,     // Platform booking fee
+    minFare: 8.00,        // Minimum chargeable fare
+    baseEta: 3,           // Base ETA in minutes (largest fleet = fastest avg)
     surgeCapMultiplier: 2.5,
   },
+  tada: {
+    baseFare: 4.00,       // TADA runs zero-commission, slightly cheaper base
+    perKmRate: 1.05,
+    perMinRate: 0.28,
+    bookingFee: 0.00,     // TADA's key differentiator: no booking fee
+    minFare: 7.00,
+    baseEta: 5,           // Smaller fleet than Grab
+    surgeCapMultiplier: 1.8, // TADA caps surge more aggressively
+  },
+  gojek: {
+    baseFare: 4.50,
+    perKmRate: 1.10,
+    perMinRate: 0.28,
+    bookingFee: 1.50,
+    minFare: 7.50,
+    baseEta: 4,
+    surgeCapMultiplier: 2.2,
+  },
   ryde: {
-    baseFare: 2.60,       // Budget-positioned, lowest base in market
-    perKmRate: 0.45,
-    perMinRate: 0.19,
-    bookingFee: 0.50,
-    minFare: 4.00,
-    baseEta: 7,           // Smallest fleet, highest ETA variance
-    surgeCapMultiplier: 1.8,
+    baseFare: 3.50,       // Budget-positioned, lowest base in market
+    perKmRate: 0.95,
+    perMinRate: 0.25,
+    bookingFee: 1.00,
+    minFare: 6.50,
+    baseEta: 6,           // Smallest fleet, highest ETA variance
+    surgeCapMultiplier: 1.6,
   },
   cdg: {
-    baseFare: 3.20,       // ComfortDelGro — premium metered-taxi heritage pricing
-    perKmRate: 0.60,
-    perMinRate: 0.25,
-    bookingFee: 2.30,     // CDG charges a higher booking fee via app
-    minFare: 5.50,
-    baseEta: 5,
+    baseFare: 4.20,       // ComfortDelGro — premium metered-taxi heritage pricing
+    perKmRate: 1.30,
+    perMinRate: 0.33,
+    bookingFee: 3.30,     // CDG charges a higher booking fee via app
+    minFare: 9.00,
+    baseEta: 3,
     surgeCapMultiplier: 1.5, // Traditional taxi — regulated, low surge ceiling
   },
 };
@@ -134,19 +134,17 @@ function getSurgeMultiplier(providerKey, sgHour) {
 function computeEta(providerKey, distanceKm, surgeMultiplier) {
   const config = FARE_CONFIG[providerKey];
 
-  // Higher surge = more drivers on the road = slightly faster pickup (inverse relationship)
+  // ETA = pickup wait time only (not ride duration)
+  // Higher surge = more drivers active = slightly faster pickup
   const surgeEtaDiscount = surgeMultiplier > 1.3 ? -1 : 0;
 
-  // Ride duration estimate: avg Singapore urban speed ~25 km/h in traffic
-  const rideDurationMinutes = Math.round((distanceKm / 25) * 60);
+  // Random fleet noise: ±1 minute
+  const fleetNoise = Math.floor(Math.random() * 3) - 1;
 
-  // Random fleet density noise: ±2 minutes
-  const fleetNoise = Math.floor(Math.random() * 5) - 2;
+  const totalEta = config.baseEta + surgeEtaDiscount + fleetNoise;
 
-  const totalEta = config.baseEta + surgeEtaDiscount + fleetNoise + rideDurationMinutes;
-
-  // Clamp: never return less than 2 minutes or more than 25 minutes ETA
-  return Math.max(2, Math.min(25, totalEta));
+  // Clamp: 2–10 min pickup window (realistic for Singapore)
+  return Math.max(2, Math.min(10, totalEta));
 }
 
 // ─────────────────────────────────────────────

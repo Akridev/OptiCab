@@ -4,48 +4,48 @@
 
 const FARE_CONFIG = {
   grab: {
-    baseFare: 3.00,
-    perKmRate: 0.55,
-    perMinRate: 0.22,
-    bookingFee: 1.00,
-    minFare: 5.00,
-    baseEta: 4,
-    surgeCapMultiplier: 3.0,
-  },
-  tada: {
-    baseFare: 2.80,
-    perKmRate: 0.50,
-    perMinRate: 0.20,
-    bookingFee: 0.00,
-    minFare: 4.50,
-    baseEta: 6,
-    surgeCapMultiplier: 2.0,
-  },
-  gojek: {
-    baseFare: 2.90,
-    perKmRate: 0.52,
-    perMinRate: 0.21,
-    bookingFee: 0.80,
-    minFare: 4.80,
-    baseEta: 5,
+    baseFare: 4.80,
+    perKmRate: 1.20,
+    perMinRate: 0.30,
+    bookingFee: 2.00,
+    minFare: 8.00,
+    baseEta: 3,
     surgeCapMultiplier: 2.5,
   },
-  ryde: {
-    baseFare: 2.60,
-    perKmRate: 0.45,
-    perMinRate: 0.19,
-    bookingFee: 0.50,
-    minFare: 4.00,
-    baseEta: 7,
+  tada: {
+    baseFare: 4.00,
+    perKmRate: 1.05,
+    perMinRate: 0.28,
+    bookingFee: 0.00,
+    minFare: 7.00,
+    baseEta: 5,
     surgeCapMultiplier: 1.8,
   },
-  cdg: {
-    baseFare: 3.20,
-    perKmRate: 0.60,
+  gojek: {
+    baseFare: 4.50,
+    perKmRate: 1.10,
+    perMinRate: 0.28,
+    bookingFee: 1.50,
+    minFare: 7.50,
+    baseEta: 4,
+    surgeCapMultiplier: 2.2,
+  },
+  ryde: {
+    baseFare: 3.50,
+    perKmRate: 0.95,
     perMinRate: 0.25,
-    bookingFee: 2.30,
-    minFare: 5.50,
-    baseEta: 5,
+    bookingFee: 1.00,
+    minFare: 6.50,
+    baseEta: 6,
+    surgeCapMultiplier: 1.6,
+  },
+  cdg: {
+    baseFare: 4.20,
+    perKmRate: 1.30,
+    perMinRate: 0.33,
+    bookingFee: 3.30,
+    minFare: 9.00,
+    baseEta: 3,
     surgeCapMultiplier: 1.5,
   },
 };
@@ -83,11 +83,14 @@ function getSurgeMultiplier(providerKey, sgHour) {
 
 function computeEta(providerKey, distanceKm, surgeMultiplier) {
   const config = FARE_CONFIG[providerKey];
+  // ETA = pickup wait time only (not ride duration)
+  // Higher surge = more drivers active = slightly faster pickup
   const surgeEtaDiscount = surgeMultiplier > 1.3 ? -1 : 0;
-  const rideDurationMinutes = Math.round((distanceKm / 25) * 60);
-  const fleetNoise = Math.floor(Math.random() * 5) - 2;
-  const totalEta = config.baseEta + surgeEtaDiscount + fleetNoise + rideDurationMinutes;
-  return Math.max(2, Math.min(25, totalEta));
+  // Random fleet noise: ±1 minute
+  const fleetNoise = Math.floor(Math.random() * 3) - 1;
+  const totalEta = config.baseEta + surgeEtaDiscount + fleetNoise;
+  // Clamp: 2–10 min pickup window (realistic for Singapore)
+  return Math.max(2, Math.min(10, totalEta));
 }
 
 function calculateFare(providerKey, distanceKm, sgHour) {
