@@ -175,17 +175,16 @@ export default function App() {
   };
 
   const saveCurrentRoute = async () => {
-    if (!deviceId || !promptText.trim()) return;
-    Alert.prompt
-      ? Alert.prompt('Save Route', 'Give this route a name:', (name) => {
-          if (name) doSaveRoute(name);
-        })
-      : Alert.alert('Save Route', 'Enter a name for this route', [
-          { text: 'Cancel' },
-          { text: 'Home', onPress: () => doSaveRoute('Home') },
-          { text: 'Work', onPress: () => doSaveRoute('Work') },
-          { text: 'Other', onPress: () => doSaveRoute('Saved Route') },
-        ]);
+    if (!deviceId || !promptText.trim()) {
+      Alert.alert('No route', 'Enter a destination first before saving.');
+      return;
+    }
+    Alert.alert('Save Route', 'Save this route as:', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: '🏠 Home', onPress: () => doSaveRoute('Home') },
+      { text: '💼 Work', onPress: () => doSaveRoute('Work') },
+      { text: '📍 Saved', onPress: () => doSaveRoute('Saved Route') },
+    ]);
   };
 
   const doSaveRoute = async (name) => {
@@ -429,9 +428,6 @@ export default function App() {
             returnKeyType="search"
           />
 
-          {/* Checkbox Filter Matrix */}
-          <Text style={styles.filterTitle}>Select Apps to Compare:</Text>
-
           {/* Saved Routes Quick-Access */}
           {savedRoutes.length > 0 && (
             <View style={styles.savedRoutesRow}>
@@ -460,29 +456,31 @@ export default function App() {
                 <Text style={styles.saveRouteBtnText}>💾 Save Route</Text>
               </TouchableOpacity>
             )}
-            {rideHistory.length > 0 && (
-              <TouchableOpacity style={styles.historyBtn} onPress={() => setShowHistory(!showHistory)}>
-                <Text style={styles.historyBtnText}>{showHistory ? '✕ Hide' : '📋 History'}</Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity style={styles.historyBtn} onPress={() => setShowHistory(!showHistory)}>
+              <Text style={styles.historyBtnText}>{showHistory ? '✕ Hide History' : '📋 History'}</Text>
+            </TouchableOpacity>
           </View>
 
           {/* History Panel */}
-          {showHistory && rideHistory.length > 0 && (
+          {showHistory && (
             <View style={styles.historyPanel}>
               <Text style={styles.historyTitle}>Recent Searches</Text>
-              {rideHistory.slice(0, 5).map((ride, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  style={styles.historyItem}
-                  onPress={() => { setPromptText(ride.prompt); setShowHistory(false); }}
-                >
-                  <Text style={styles.historyRoute}>{ride.pickup} → {ride.dropoff}</Text>
-                  <Text style={styles.historyMeta}>
-                    {ride.cheapestProvider} ${ride.cheapestPrice?.toFixed(2)} • {new Date(ride.timestamp).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {rideHistory.length === 0 ? (
+                <Text style={styles.historyMeta}>No searches yet. Your history will appear here after your first search.</Text>
+              ) : (
+                rideHistory.slice(0, 5).map((ride, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.historyItem}
+                    onPress={() => { setPromptText(ride.prompt); setShowHistory(false); }}
+                  >
+                    <Text style={styles.historyRoute}>{ride.pickup} → {ride.dropoff}</Text>
+                    <Text style={styles.historyMeta}>
+                      {ride.cheapestProvider} ${ride.cheapestPrice?.toFixed(2)} • {new Date(ride.timestamp).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
             </View>
           )}
 

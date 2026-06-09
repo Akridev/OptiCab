@@ -309,12 +309,23 @@ export default async function handler(req, res) {
       prompt: `Current Location Context (GPS): ${currentGpsLocation}. User Request: "${enrichedPrompt}"`,
     });
 
-    const parsedContext = safeParseJSON(llmOutput.trim());
+    let parsedContext = safeParseJSON(llmOutput.trim());
     if (!parsedContext) {
-      return res.status(200).json({
-        isInvalidInput: true,
-        message: "\uD83E\uDD16 OptiCab couldn't understand the route. Please try rephrasing (e.g., \"From Bukit Batok to Orchard\")."
-      });
+      // Retry once with a simpler prompt
+      try {
+        const { text: retryOutput } = await generateText({
+          model: groq('llama-3.1-8b-instant'),
+          system: `Return a JSON object with these fields: pickup (string or null), dropoff (string), distanceKm (number), passengers (number), needsBabySeat (boolean), needsLargeVehicle (boolean), childAges (array of numbers). No markdown, no explanation, ONLY raw JSON.`,
+          prompt: `Parse this travel request: "${enrichedPrompt}". GPS: ${currentGpsLocation}`,
+        });
+        parsedContext = safeParseJSON(retryOutput.trim());
+      } catch {}
+      if (!parsedContext) {
+        return res.status(200).json({
+          isInvalidInput: true,
+          message: "\uD83E\uDD16 OptiCab couldn't understand the route. Please try rephrasing (e.g., \"From Bukit Batok to Orchard\")."
+        });
+      }
     }
     let targetDistance = parseFloat(parsedContext.distanceKm);
     const passengers = parseInt(parsedContext.passengers) || 1;
@@ -492,12 +503,29 @@ export default async function handler(req, res) {
       if (activePlatforms.includes('Gojek')) carOptions.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.gojek.rideDurationMinutes, carType: 'GoCar 4-Seater' });
       if (activePlatforms.includes('Ryde')) carOptions.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.ryde.rideDurationMinutes, carType: 'RydeX 4-Seater' });
       if (activePlatforms.includes('ComfortDelGro')) carOptions.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.cdg.rideDurationMinutes, carType: 'ComfortRIDE 4-Seater' });
-      const sortedFastestCar = carOptions.sort((a, b) => a.eta - b.eta)[0];
+
+      // Compare total trip time: walk (0 + walkTime) vs car (eta + rideDuration)
+      const walkTotalTime = walkTime; // no pickup wait
+      const fastestCar = carOptions.sort((a, b) => (a.eta + (a.rideDuration || 0)) - (b.eta + (b.rideDuration || 0)))[0];
+      const carTotalTime = fastestCar ? (fastestCar.eta + (fastestCar.rideDuration || 0)) : Infinity;
+
+      // If walking is faster overall, show it as both cheapest AND fastest
+      if (walkTotalTime <= carTotalTime) {
+        return res.status(200).json({
+          isInvalidInput: false,
+          extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay) },
+          cheapest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
+          fastest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
+          alerts: ["\uD83D\uDCA1 Walking is both cheapest AND fastest for this distance. Save money and stay healthy!"],
+        });
+      }
+
+      // Walking is cheaper but car is faster overall
       return res.status(200).json({
         isInvalidInput: false,
         extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay) },
         cheapest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
-        fastest: sortedFastestCar,
+        fastest: fastestCar,
         alerts: ["\uD83D\uDCA1 OptiCab Agent Note: Your destination is walkable and weather conditions are clear. Walk to save money!"],
       });
     }
