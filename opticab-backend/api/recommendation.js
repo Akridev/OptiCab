@@ -273,7 +273,7 @@ export default async function handler(req, res) {
     if (guardResult.text.trim() === 'INVALID') {
       return res.status(200).json({
         isInvalidInput: true,
-        message: "OptiCab Assistant: I can only help with travel and transport planning in Singapore. Please enter a destination or a ride request!"
+        message: "\uD83E\uDD16 OptiCab Assistant: I can only help with travel and transport planning in Singapore. Please enter a destination or a ride request!"
       });
     }
 
@@ -295,14 +295,14 @@ export default async function handler(req, res) {
       model: groq('llama-3.1-8b-instant'),
       system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
                IMPORTANT: Think beyond what the user literally typed. Consider what they ACTUALLY need to save money and stay safe.
-               For example: a child aged 8+ does NOT need a child seat by Singapore law  - don't flag it. A "kid" without an age should be assumed young (needs a seat). Always optimize for the cheapest safe option.
+               For example: a child aged 8+ does NOT need a child seat by Singapore law \u2014 don't flag it. A "kid" without an age should be assumed young (needs a seat). Always optimize for the cheapest safe option.
                
                Extract the following information:
                - "pickup": ONLY set this if the user EXPLICITLY indicates a starting location using words like "from", or uses a "X to Y" pattern where X is clearly a different location from Y. If the user just states a single destination (even with passenger info), set pickup to null. The system will use their GPS location.
                - "dropoff": the destination name or address (the "to" location, or the only location if just one is given)
                - "distanceKm": estimated distance in km between pickup and dropoff. If user provides explicit pickup, estimate from that location to dropoff. Otherwise estimate from the GPS coordinates to dropoff.
                - "passengers": number of passengers (default 1 if not mentioned). Count adults + children + babies.
-               - "needsBabySeat": true if user mentions baby, infant, toddler, child, kid, or any child aged 7 or below (default false). If all children mentioned are aged 8 or above, set this to false  - they do not need a child seat.
+               - "needsBabySeat": true if user mentions baby, infant, toddler, child, kid, or any child aged 7 or below (default false). If all children mentioned are aged 8 or above, set this to false \u2014 they do not need a child seat.
                - "needsLargeVehicle": true if passengers > 4 or user mentions 6-seater, 7-seater, large vehicle, MPV, van (default false)
                - "childAges": array of integers representing the ages of each child/baby/infant/toddler mentioned. Use context clues: "baby" = 1, "infant" = 0, "toddler" = 2. If user says "4 year old" put [4]. If "1 baby and 1 4 year old" put [1, 4]. If no children mentioned, return empty array []. IMPORTANT: If user says "baby 9 years old" or "kid 8 years old", the AGE overrides the word — put [9] or [8], NOT the default age for "baby". The explicit age always wins.
                Return ONLY a valid raw JSON object. Do not wrap in markdown boxes.`,
@@ -323,7 +323,7 @@ export default async function handler(req, res) {
       if (!parsedContext) {
         return res.status(200).json({
           isInvalidInput: true,
-          message: "OptiCab couldn't understand the route. Please try rephrasing (e.g., \"From Bukit Batok to Orchard\")."
+          message: "\uD83E\uDD16 OptiCab couldn't understand the route. Please try rephrasing (e.g., \"From Bukit Batok to Orchard\")."
         });
       }
     }
@@ -413,7 +413,7 @@ export default async function handler(req, res) {
           if (distM < 200) {
             return res.status(200).json({
               isInvalidInput: true,
-              message: "That's your current location! Please enter a destination you want to travel TO (e.g., \"Take me to Orchard Road\")."
+              message: "\uD83D\uDCCD That's your current location! Please enter a destination you want to travel TO (e.g., \"Take me to Orchard Road\")."
             });
           }
         }
@@ -498,9 +498,12 @@ export default async function handler(req, res) {
     const exaPromise = getExaTransportAlerts(
       typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
     ).catch(() => ({ socialResults: { results: [] }, mrtResults: { results: [] }, eventResults: { results: [] } }));
+    const dropoffIntelPromise = getDropoffIntel(
+      typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
+    ).catch(() => ({ results: [] }));
 
-    const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers] = await Promise.all([
-      faresPromise, ltaPromise, weatherPromise, exaPromise
+    const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers, dropoffIntel] = await Promise.all([
+      faresPromise, ltaPromise, weatherPromise, exaPromise, dropoffIntelPromise
     ]);
 
     // â•â•â• PHASE 5: Analysis & Response â•â•â•
@@ -553,7 +556,7 @@ export default async function handler(req, res) {
           extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay), pickupIsCurrentLocation },
           cheapest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
           fastest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
-          alerts: ["Walking is both cheapest AND fastest for this distance. Save money and stay healthy!"],
+          alerts: ["\uD83D\uDCA1 Walking is both cheapest AND fastest for this distance. Save money and stay healthy!"],
         });
       }
 
@@ -563,7 +566,7 @@ export default async function handler(req, res) {
         extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay), pickupIsCurrentLocation },
         cheapest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
         fastest: fastestCar,
-        alerts: ["Your destination is walkable and weather conditions are clear. Walk to save money!"],
+        alerts: ["\uD83D\uDCA1 OptiCab Agent Note: Your destination is walkable and weather conditions are clear. Walk to save money!"],
       });
     }
 
@@ -577,11 +580,11 @@ export default async function handler(req, res) {
     };
 
     const CAR_TYPES = {
-      Grab: { standard: 'JustGrab 4-Seater', babySeat_age1to7: 'GrabFamily 4-Seater (Child Seat, Age 1-3)', babySeat_age4to7: 'GrabFamily 4-Seater (Child Seat, Age 4-7)', largeVehicle: 'Grab 6-Seater', largeBaby_age1to7: 'GrabFamily 6-Seater (Child Seat, Age 1-3)', largeBaby_age4to7: 'GrabFamily 6-Seater (Child Seat, Age 4-7)' },
+      Grab: { standard: 'JustGrab 4-Seater', babySeat_age1to7: 'GrabFamily 4-Seater (Child Seat, Age 1\u20133)', babySeat_age4to7: 'GrabFamily 4-Seater (Child Seat, Age 4\u20137)', largeVehicle: 'Grab 6-Seater', largeBaby_age1to7: 'GrabFamily 6-Seater (Child Seat, Age 1\u20133)', largeBaby_age4to7: 'GrabFamily 6-Seater (Child Seat, Age 4\u20137)' },
       TADA: { standard: 'TADA Standard 4-Seater', babySeat_age1to7: 'TADA Standard 4-Seater', babySeat_age4to7: 'TADA Standard 4-Seater', largeVehicle: 'TADA Standard 4-Seater', largeBaby_age1to7: 'TADA Standard 4-Seater', largeBaby_age4to7: 'TADA Standard 4-Seater' },
       Gojek: { standard: 'GoCar 4-Seater', babySeat_age1to7: 'GoCar 4-Seater', babySeat_age4to7: 'GoCar 4-Seater', largeVehicle: 'GoCar 4-Seater', largeBaby_age1to7: 'GoCar 4-Seater', largeBaby_age4to7: 'GoCar 4-Seater' },
       Ryde: { standard: 'RydeX 4-Seater', babySeat_age1to7: 'RydeX 4-Seater', babySeat_age4to7: 'RydeX 4-Seater', largeVehicle: 'RydeX 4-Seater', largeBaby_age1to7: 'RydeX 4-Seater', largeBaby_age4to7: 'RydeX 4-Seater' },
-      ComfortDelGro: { standard: 'ComfortRIDE 4-Seater', babySeat_age1to7: 'ComfortRIDE Family (Child Seat, Age 1-3)', babySeat_age4to7: 'ComfortRIDE Family (Child Seat, Age 4-7)', largeVehicle: 'ComfortRIDE 6-Seater', largeBaby_age1to7: 'ComfortRIDE Family 6-Seater (Child Seat, Age 1-3)', largeBaby_age4to7: 'ComfortRIDE Family 6-Seater (Child Seat, Age 4-7)' },
+      ComfortDelGro: { standard: 'ComfortRIDE 4-Seater', babySeat_age1to7: 'ComfortRIDE Family (Child Seat, Age 1\u20133)', babySeat_age4to7: 'ComfortRIDE Family (Child Seat, Age 4\u20137)', largeVehicle: 'ComfortRIDE 6-Seater', largeBaby_age1to7: 'ComfortRIDE Family 6-Seater (Child Seat, Age 1\u20133)', largeBaby_age4to7: 'ComfortRIDE Family 6-Seater (Child Seat, Age 4\u20137)' },
     };
 
     function getCarType(provider) {
@@ -604,7 +607,7 @@ export default async function handler(req, res) {
     if (needsLargeVehicle) optionsPool = optionsPool.filter(opt => PROVIDER_FEATURES[opt.provider]?.largeVehicle);
 
     if (optionsPool.length === 0) {
-      return res.status(200).json({ isInvalidInput: true, message: "No providers available for your requirements. Try enabling Grab or ComfortDelGro - they support baby seats and large vehicles." });
+      return res.status(200).json({ isInvalidInput: true, message: "\uD83E\uDD16 No providers available for your requirements. Try enabling Grab or ComfortDelGro \u2014 they support baby seats and large vehicles." });
     }
 
     // Apply traffic + weather delays
@@ -615,7 +618,7 @@ export default async function handler(req, res) {
     const socialHighlights = exaLayers.socialResults?.results?.flatMap(r => r.highlights) || [];
     const mrtHighlights = exaLayers.mrtResults?.results?.flatMap(r => r.highlights) || [];
     const eventHighlights = exaLayers.eventResults?.results?.flatMap(r => r.highlights) || [];
-    const dropoffTips = [];
+    const dropoffTips = dropoffIntel?.results?.flatMap(r => r.highlights) || [];
 
     const hasMrtDisruption = mrtHighlights.some(h => /disruption|delay|breakdown|fault/i.test(h));
     const hasEventSurge = eventHighlights.length > 0;
@@ -627,18 +630,18 @@ export default async function handler(req, res) {
 
     // Build alerts
     const alerts = [];
-    if (hasAccident) { const d = routeIncidents.find(i => /accident|collision/i.test(i.Type)); alerts.push(`Live accident detected near your route: ${d?.Message || 'Details unavailable'}`); }
-    if (hasHeavyTraffic) alerts.push("Heavy traffic congestion detected on your route (LTA Live Data).");
-    if (hasRoadWork) alerts.push("Road works in progress along your route - expect minor delays.");
-    if (hasBreakdown) alerts.push("Vehicle breakdown reported near your route.");
-    if (isRaining) alerts.push("Rain detected in the area - expect longer pickup times and slower driving.");
-    if (hasMrtDisruption) { alerts.push(`Train disruption detected: ${mrtHighlights[0]?.slice(0, 120) || 'MRT line affected'} - expect surge pricing and longer waits.`); }
-    if (hasEventSurge) { alerts.push(`Predicted surge: ${eventHighlights[0]?.slice(0, 100) || 'Major event nearby'} - high demand expected.`); }
-    if (hasSocialCongestion) alerts.push("Drivers reporting active gridlock in the area (social feeds).");
-    if (dropoffTips.length > 0) alerts.push(`Drop-off tip: ${dropoffTips[0].slice(0, 120)}`);
-    if (effectiveNeedsBabySeat) { const tierLabel = childSeatTier === 'age4to7' ? 'Age 4-7 (cheaper tier)' : 'Age 1-3'; alerts.push(`Child seat requested (${tierLabel}) - showing only providers with child seat support.`); }
-    else if (needsBabySeat && effectiveChildAges.length > 0 && Math.min(...effectiveChildAges) >= 8) { alerts.push("Child is 8+ - no child seat required by law. Booking standard car to save cost."); }
-    if (needsLargeVehicle) alerts.push(`${passengers} passengers - showing 6/7-seater options (higher fare applies).`);
+    if (hasAccident) { const d = routeIncidents.find(i => /accident|collision/i.test(i.Type)); alerts.push(`\uD83D\uDEA8 Live accident detected near your route: ${d?.Message || 'Details unavailable'}`); }
+    if (hasHeavyTraffic) alerts.push("\uD83D\uDE97 Heavy traffic congestion detected on your route (LTA Live Data).");
+    if (hasRoadWork) alerts.push("\uD83D\uDEA7 Road works in progress along your route \u2014 expect minor delays.");
+    if (hasBreakdown) alerts.push("\u26A0\uFE0F Vehicle breakdown reported near your route.");
+    if (isRaining) alerts.push("\uD83C\uDF27\uFE0F Rain detected in the area \u2014 expect longer pickup times and slower driving.");
+    if (hasMrtDisruption) { alerts.push(`\uD83D\uDE86 Train disruption detected: ${mrtHighlights[0]?.slice(0, 120) || 'MRT line affected'} \u2014 expect surge pricing and longer waits.`); }
+    if (hasEventSurge) { alerts.push(`\uD83C\uDFDF\uFE0F Predicted surge: ${eventHighlights[0]?.slice(0, 100) || 'Major event nearby'} \u2014 high demand expected.`); }
+    if (hasSocialCongestion) alerts.push("\uD83D\uDCE1 Drivers reporting active gridlock in the area (social feeds).");
+    if (dropoffTips.length > 0) alerts.push(`\uD83D\uDCCD Drop-off tip: ${dropoffTips[0].slice(0, 120)}`);
+    if (effectiveNeedsBabySeat) { const tierLabel = childSeatTier === 'age4to7' ? 'Age 4\u20137 (cheaper tier)' : 'Age 1\u20133'; alerts.push(`\uD83D\uDC76 Child seat requested (${tierLabel}) \u2014 showing only providers with child seat support.`); }
+    else if (needsBabySeat && effectiveChildAges.length > 0 && Math.min(...effectiveChildAges) >= 8) { alerts.push("\uD83D\uDC66 Child is 8+ \u2014 no child seat required by law. Booking standard car to save cost."); }
+    if (needsLargeVehicle) alerts.push(`\uD83D\uDE90 ${passengers} passengers \u2014 showing 6/7-seater options (higher fare applies).`);
 
     const finalCheapest = [...optionsPool].sort((a, b) => a.price - b.price)[0];
     const finalFastest = [...optionsPool].sort((a, b) => a.eta - b.eta)[0];
