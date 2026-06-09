@@ -346,7 +346,10 @@ export default async function handler(req, res) {
         }
       }
     }
-    const resolvedPickup = parsedContext.pickup || currentGpsLocation;
+    // If only 1 postal code exists, it's the dropoff — force pickup to GPS regardless of LLM output
+    const resolvedPickup = (postalCodes.length === 1 && resolvedPostals[postalCodes[0]])
+      ? currentGpsLocation
+      : (parsedContext.pickup || currentGpsLocation);
 
     // Smart child seat tier logic
     let childSeatTier = 'none';
@@ -362,39 +365,50 @@ export default async function handler(req, res) {
     }
     const effectiveNeedsBabySeat = childSeatTier !== 'none';
 
-    // â•â•â• PHASE 3: Dropoff Verify + Reverse Geocode + Driving Distance in PARALLEL â•â•â•
-    // Resolve coordinates (sync from already-resolved postal data)
+    // PHASE 3: Resolve pickup/dropoff coordinates + display names
     let pickupLat = null, pickupLng = null;
-    if (/^\d+\.\d+,\s*\d+\.\d+$/.test(resolvedPickup)) {
-      [pickupLat, pickupLng] = resolvedPickup.split(',').map(s => parseFloat(s.trim()));
-    } else if (postalCodes.length >= 1 && resolvedPostals[postalCodes[0]] && parsedContext.pickup) {
-      pickupLat = resolvedPostals[postalCodes[0]].lat;
-      pickupLng = resolvedPostals[postalCodes[0]].lng;
-    }
-
     let dropoffLat = null, dropoffLng = null;
-    if (postalCodes.length >= 2 && resolvedPostals[postalCodes[1]]) {
-      dropoffLat = resolvedPostals[postalCodes[1]].lat;
-      dropoffLng = resolvedPostals[postalCodes[1]].lng;
-    } else if (postalCodes.length === 1 && !parsedContext.pickup && resolvedPostals[postalCodes[0]]) {
-      dropoffLat = resolvedPostals[postalCodes[0]].lat;
-      dropoffLng = resolvedPostals[postalCodes[0]].lng;
-    }
-
-    // Pre-set display names from postal codes (no network needed)
     let dropoffDisplay = parsedContext.dropoff;
     let pickupDisplayName = resolvedPickup;
 
-    if (postalCodes.length >= 2 && resolvedPostals[postalCodes[1]]) {
-      const r = resolvedPostals[postalCodes[1]];
-      dropoffDisplay = r.buildingName ? `${r.buildingName}, ${r.address}` : r.address;
-    } else if (postalCodes.length === 1 && !parsedContext.pickup && resolvedPostals[postalCodes[0]]) {
+    if (postalCodes.length >= 2) {
+      // Two postal codes - match to pickup/dropoff using LLM interpretation
+      const pickupText = (typeof parsedContext.pickup === 'string' ? parsedContext.pickup : '').toLowerCase();
+      const dropoffText = (typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : '').toLowerCase();
+      let pickupPostal = null, dropoffPostal = null;
+      for (const code of postalCodes) {
+        if (!resolvedPostals[code]) continue;
+        const addr = resolvedPostals[code].address.toLowerCase();
+        const bld = (resolvedPostals[code].buildingName || '').toLowerCase();
+        if (pickupText && (pickupText.includes(addr) || addr.includes(pickupText) || (bld && pickupText.includes(bld)) || pickupText.includes(code))) {
+          pickupPostal = code;
+        } else if (dropoffText && (dropoffText.includes(addr) || addr.includes(dropoffText) || (bld && dropoffText.includes(bld)) || dropoffText.includes(code))) {
+          dropoffPostal = code;
+        }
+      }
+      if (!pickupPostal && !dropoffPostal) { pickupPostal = postalCodes[0]; dropoffPostal = postalCodes[1]; }
+      else if (!pickupPostal) { pickupPostal = postalCodes.find(c => c !== dropoffPostal) || postalCodes[0]; }
+      else if (!dropoffPostal) { dropoffPostal = postalCodes.find(c => c !== pickupPostal) || postalCodes[1]; }
+      if (resolvedPostals[pickupPostal]) {
+        const r = resolvedPostals[pickupPostal];
+        pickupLat = r.lat; pickupLng = r.lng;
+        pickupDisplayName = r.buildingName ? `${r.buildingName}, ${r.address}` : r.address;
+      }
+      if (resolvedPostals[dropoffPostal]) {
+        const r = resolvedPostals[dropoffPostal];
+        dropoffLat = r.lat; dropoffLng = r.lng;
+        dropoffDisplay = r.buildingName ? `${r.buildingName}, ${r.address}` : r.address;
+      }
+    } else if (postalCodes.length === 1 && resolvedPostals[postalCodes[0]]) {
+      // Single postal code - ALWAYS the dropoff
       const r = resolvedPostals[postalCodes[0]];
+      dropoffLat = r.lat; dropoffLng = r.lng;
       dropoffDisplay = r.buildingName ? `${r.buildingName}, ${r.address}` : r.address;
     }
-    if (postalCodes.length >= 1 && parsedContext.pickup && resolvedPostals[postalCodes[0]]) {
-      const r = resolvedPostals[postalCodes[0]];
-      pickupDisplayName = r.buildingName ? `${r.buildingName}, ${r.address}` : r.address;
+
+    // If pickup is GPS coordinates, parse them
+    if (!pickupLat && /^\d+\.\d+,\s*\d+\.\d+$/.test(resolvedPickup)) {
+      [pickupLat, pickupLng] = resolvedPickup.split(',').map(s => parseFloat(s.trim()));
     }
 
     // Task A: Verify dropoff via OneMap (only if not already resolved from postal code)
