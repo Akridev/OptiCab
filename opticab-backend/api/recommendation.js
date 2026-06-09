@@ -6,6 +6,70 @@ import { groq } from '@ai-sdk/groq';
 const exa = new Exa(process.env.EXA_API_KEY);
 
 // ─────────────────────────────────────────────
+// Exa: Multi-layer unstructured intelligence
+// Domain-pinpointed, fast mode, 4-hour temporal constraint
+// ─────────────────────────────────────────────
+
+async function getExaTransportAlerts(dropoffName) {
+  const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+
+  // Layer 1: Real-time driver behavior & social scraping
+  const socialPromise = exa.search(
+    `Singapore drivers reporting active congestion or ride app surge issues near ${dropoffName} right now`,
+    {
+      type: "keyword",
+      numResults: 2,
+      startPublishedDate: fourHoursAgo,
+      includeDomains: ["x.com", "reddit.com", "hardwarezone.com.sg"],
+      contents: { highlights: true },
+    }
+  ).catch(() => ({ results: [] }));
+
+  // Layer 2: MRT/train disruptions
+  const mrtPromise = exa.search(
+    `SMRT SBS transit train service disruption delay breakdown Singapore`,
+    {
+      type: "keyword",
+      numResults: 2,
+      startPublishedDate: fourHoursAgo,
+      includeDomains: ["channelnewsasia.com", "straitstimes.com", "mothership.sg", "lta.gov.sg"],
+      contents: { highlights: true },
+    }
+  ).catch(() => ({ results: [] }));
+
+  // Layer 3: Event/concert surge prediction
+  const todayStr = new Date().toISOString().split('T')[0];
+  const eventPromise = exa.search(
+    `Major events concerts conventions ending today ${todayStr} Singapore National Stadium Expo Marina Bay Sands`,
+    {
+      type: "keyword",
+      numResults: 2,
+      startPublishedDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      includeDomains: ["channelnewsasia.com", "straitstimes.com", "mothership.sg", "timeout.com"],
+      contents: { highlights: true },
+    }
+  ).catch(() => ({ results: [] }));
+
+  const [socialResults, mrtResults, eventResults] = await Promise.all([socialPromise, mrtPromise, eventPromise]);
+
+  return { socialResults, mrtResults, eventResults };
+}
+
+// Layer 4: Building-specific drop-off intelligence
+async function getDropoffIntel(dropoffName) {
+  const result = await exa.search(
+    `Best pickup point lobby drop-off advice taxi drivers at ${dropoffName} Singapore`,
+    {
+      type: "keyword",
+      numResults: 1,
+      includeDomains: ["reddit.com", "hardwarezone.com.sg", "tripadvisor.com"],
+      contents: { highlights: true },
+    }
+  ).catch(() => ({ results: [] }));
+  return result;
+}
+
+// ─────────────────────────────────────────────
 // LTA DataMall: Real-time traffic incidents
 // ─────────────────────────────────────────────
 
@@ -18,6 +82,45 @@ async function getLtaTrafficIncidents() {
   });
   const data = await response.json();
   return data.value || [];
+}
+
+// ─────────────────────────────────────────────
+// NEA: Real-time 2-hour weather nowcast (data.gov.sg)
+// No API key needed — free public endpoint
+// ─────────────────────────────────────────────
+
+async function getCurrentWeather() {
+  const response = await fetch('https://api.data.gov.sg/v1/environment/2-hour-weather-forecast');
+  const data = await response.json();
+  if (data.items && data.items.length > 0) {
+    return data.items[0].forecasts || []; // Array of { area, forecast }
+  }
+  return [];
+}
+
+function isRainingNearArea(forecasts, dropoffName) {
+  // Check if any forecast area matches or contains the dropoff name, and has rain
+  const rainKeywords = /rain|shower|thunder|storm/i;
+  const dropoffLower = (typeof dropoffName === 'string' ? dropoffName : '').toLowerCase();
+
+  for (const f of forecasts) {
+    const areaLower = f.area.toLowerCase();
+    // Check if the area name overlaps with the dropoff (fuzzy match)
+    const isNearby = dropoffLower.includes(areaLower) || areaLower.includes(dropoffLower) ||
+      dropoffLower.split(' ').some(word => word.length > 3 && areaLower.includes(word));
+
+    if (isNearby && rainKeywords.test(f.forecast)) {
+      return true;
+    }
+  }
+
+  // Also check if it's raining across most of Singapore (widespread rain)
+  const rainyAreas = forecasts.filter(f => rainKeywords.test(f.forecast));
+  if (rainyAreas.length >= forecasts.length * 0.5) {
+    return true; // More than half of Singapore has rain
+  }
+
+  return false;
 }
 
 // Check if any incident is near a coordinate (within radiusKm)
@@ -133,6 +236,25 @@ export default async function handler(req, res) {
     const needsLargeVehicle = parsedContext.needsLargeVehicle === true || passengers > 4;
     const resolvedPickup = parsedContext.pickup || currentGpsLocation;
 
+    // Verify dropoff against OneMap for consistent, official address with postal code
+    let dropoffDisplay = parsedContext.dropoff;
+    try {
+      const dropoffQuery = typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : parsedContext.dropoff?.address || '';
+      if (dropoffQuery) {
+        const searchRes = await fetch(
+          `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(dropoffQuery)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
+        );
+        const searchData = await searchRes.json();
+        if (searchData.results && searchData.results.length > 0) {
+          const top = searchData.results[0];
+          const building = top.BUILDING && top.BUILDING !== 'NIL' ? `${top.BUILDING}, ` : '';
+          dropoffDisplay = `${building}${top.ADDRESS}`;
+        }
+      }
+    } catch {
+      // Keep Groq's interpretation if OneMap fails
+    }
+
     // 3. Concurrent data fetch: Fares + LTA Traffic + Exa Weather
     // Also reverse geocode the pickup if it's raw coordinates
     let pickupDisplayName = resolvedPickup;
@@ -178,12 +300,17 @@ export default async function handler(req, res) {
 
     const ltaPromise = getLtaTrafficIncidents().catch(() => []);
 
-    const exaPromise = exa.search(
-      `Singapore weather alert rain flood ${parsedContext.dropoff}`,
-      { type: "auto", numResults: 1, contents: { highlights: true } }
+    const weatherPromise = getCurrentWeather().catch(() => []);
+
+    const exaPromise = getExaTransportAlerts(
+      typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
+    ).catch(() => ({ socialResults: { results: [] }, mrtResults: { results: [] }, eventResults: { results: [] } }));
+
+    const dropoffIntelPromise = getDropoffIntel(
+      typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
     ).catch(() => ({ results: [] }));
 
-    const [fareMatrix, ltaIncidents, exaResults] = await Promise.all([faresPromise, ltaPromise, exaPromise]);
+    const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers, dropoffIntel] = await Promise.all([faresPromise, ltaPromise, weatherPromise, exaPromise, dropoffIntelPromise]);
 
     // 4. Analyze traffic conditions using LTA live data
     // Parse pickup coordinates for incident proximity check
@@ -204,9 +331,9 @@ export default async function handler(req, res) {
     const hasBreakdown = routeIncidents.some(i => /breakdown|stalled/i.test(i.Type));
     const isTrafficDisrupted = hasAccident || hasHeavyTraffic || hasBreakdown;
 
-    // Weather from Exa
-    const weatherHighlights = exaResults.results?.flatMap(r => r.highlights) || [];
-    const isRaining = weatherHighlights.some(text => /rain|downpour|thunderstorm|flood/i.test(text));
+    // Weather from NEA real-time 2-hour nowcast
+    const dropoffStr = typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : '';
+    const isRaining = isRainingNearArea(weatherForecasts, dropoffStr);
 
     // 5. Walkable Intervention Layer
     if (targetDistance <= 1.2 && !isRaining && !needsLargeVehicle && !needsBabySeat) {
@@ -223,7 +350,7 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         isInvalidInput: false,
-        extractedRoute: { pickup: pickupDisplayName, dropoff: parsedContext.dropoff },
+        extractedRoute: { pickup: pickupDisplayName, dropoff: dropoffDisplay },
         cheapest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
         fastest: sortedFastestCar,
         alerts: ["💡 OptiCab Agent Note: Your destination is walkable and weather conditions are clear. Walk to save money!"],
@@ -275,7 +402,38 @@ export default async function handler(req, res) {
       });
     }
 
-    // Build alerts from real data
+    // Exa multi-layer intelligence analysis
+    const socialHighlights = exaLayers.socialResults?.results?.flatMap(r => r.highlights) || [];
+    const mrtHighlights = exaLayers.mrtResults?.results?.flatMap(r => r.highlights) || [];
+    const eventHighlights = exaLayers.eventResults?.results?.flatMap(r => r.highlights) || [];
+    const dropoffTips = dropoffIntel?.results?.flatMap(r => r.highlights) || [];
+
+    // MRT disruption = massive surge (thousands spill onto roads)
+    const hasMrtDisruption = mrtHighlights.some(h => /disruption|delay|breakdown|fault/i.test(h));
+    // Event ending = predicted surge
+    const hasEventSurge = eventHighlights.length > 0;
+    // Social chatter confirms ground-level congestion
+    const hasSocialCongestion = socialHighlights.some(h => /jam|stuck|surge|wait|delay|slow/i.test(h));
+
+    // Apply Exa-derived penalties
+    if (hasMrtDisruption) {
+      optionsPool.forEach(opt => {
+        opt.eta += 5; // Everyone booking at once
+        opt.rideDuration += 8; // Roads flooded with displaced commuters
+      });
+    }
+    if (hasEventSurge) {
+      optionsPool.forEach(opt => {
+        opt.eta += 3; // Higher demand, fewer available drivers
+      });
+    }
+    if (hasSocialCongestion) {
+      optionsPool.forEach(opt => {
+        opt.rideDuration += 5; // Ground reports confirm gridlock
+      });
+    }
+
+    // Build alerts from all data sources
     const alerts = [];
     if (hasAccident) {
       const accidentDetails = routeIncidents.find(i => /accident|collision/i.test(i.Type));
@@ -285,15 +443,29 @@ export default async function handler(req, res) {
     if (hasRoadWork) alerts.push("🚧 Road works in progress along your route — expect minor delays.");
     if (hasBreakdown) alerts.push("⚠️ Vehicle breakdown reported near your route.");
     if (isRaining) alerts.push("🌧️ Rain detected in the area — expect longer pickup times and slower driving.");
+    if (hasMrtDisruption) {
+      const mrtDetail = mrtHighlights[0]?.slice(0, 120) || 'MRT line affected';
+      alerts.push(`� Train disruption detected: ${mrtDetail} — expect surge pricing and longer waits.`);
+    }
+    if (hasEventSurge) {
+      const eventDetail = eventHighlights[0]?.slice(0, 100) || 'Major event nearby';
+      alerts.push(`🏟️ Predicted surge: ${eventDetail} — high demand expected.`);
+    }
+    if (hasSocialCongestion) {
+      alerts.push("📡 Drivers reporting active gridlock in the area (social feeds).");
+    }
+    if (dropoffTips.length > 0) {
+      alerts.push(`📍 Drop-off tip: ${dropoffTips[0].slice(0, 120)}`);
+    }
     if (needsBabySeat) alerts.push("👶 Baby seat requested — showing only providers with child seat support.");
-    if (needsLargeVehicle) alerts.push(`👥 ${passengers} passengers — showing 6/7-seater options (higher fare applies).`);
+    if (needsLargeVehicle) alerts.push(`� ${passengers} passengers — showing 6/7-seater options (higher fare applies).`);
 
     const finalCheapest = [...optionsPool].sort((a, b) => a.price - b.price)[0];
     const finalFastest = [...optionsPool].sort((a, b) => a.eta - b.eta)[0];
 
     return res.status(200).json({
       isInvalidInput: false,
-      extractedRoute: { pickup: pickupDisplayName, dropoff: parsedContext.dropoff },
+      extractedRoute: { pickup: pickupDisplayName, dropoff: dropoffDisplay },
       cheapest: finalCheapest,
       fastest: finalFastest,
       alerts,
