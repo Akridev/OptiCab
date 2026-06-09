@@ -41,9 +41,6 @@ export default async function handler(req, res) {
       ],
       success_url: `${process.env.APP_URL || 'https://opticab-backend.vercel.app'}/api/stripe-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.APP_URL || 'https://opticab-backend.vercel.app'}/api/stripe-cancel`,
-      subscription_data: {
-        metadata: { deviceId },
-      },
     });
 
     return res.status(200).json({ checkoutUrl: session.url });
