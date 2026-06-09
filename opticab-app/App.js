@@ -53,17 +53,24 @@ export default function App() {
   // Get or generate a stable device ID
   useEffect(() => {
     (async () => {
-      let id = await AsyncStorage.getItem('opticab_device_id');
-      if (!id) {
-        // Use native install ID if available, otherwise generate a UUID
-        if (Platform.OS === 'android') {
-          id = Application.getAndroidId() || `opticab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        } else {
-          id = `opticab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      try {
+        let id = await AsyncStorage.getItem('opticab_device_id');
+        if (!id) {
+          // Generate a unique ID for this device/install
+          if (Platform.OS === 'android' && Application.getAndroidId) {
+            id = Application.getAndroidId();
+          }
+          if (!id) {
+            id = `opticab-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+          }
+          await AsyncStorage.setItem('opticab_device_id', id);
         }
-        await AsyncStorage.setItem('opticab_device_id', id);
+        setDeviceId(id);
+      } catch (err) {
+        // Fallback if AsyncStorage fails
+        const fallbackId = `opticab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        setDeviceId(fallbackId);
       }
-      setDeviceId(id);
     })();
   }, []);
 
@@ -103,7 +110,10 @@ export default function App() {
   };
 
   const handleUpgrade = async () => {
-    if (!deviceId) return;
+    if (!deviceId) {
+      Alert.alert('Loading', 'Please wait a moment and try again.');
+      return;
+    }
     try {
       const response = await fetch(STRIPE_CHECKOUT_URL, {
         method: 'POST',
@@ -114,10 +124,11 @@ export default function App() {
       if (data.checkoutUrl) {
         await Linking.openURL(data.checkoutUrl);
       } else {
-        Alert.alert('Error', 'Could not start checkout. Please try again.');
+        Alert.alert('Error', data.details || data.error || 'Could not start checkout. Please try again.');
       }
-    } catch {
+    } catch (err) {
       Alert.alert('Error', 'Network error. Please check your connection.');
+      console.error('Upgrade error:', err);
     }
   };
 
