@@ -229,13 +229,17 @@ export default async function handler(req, res) {
     const { text: llmOutput } = await generateText({
       model: groq('llama-3.1-8b-instant'),
       system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
+               IMPORTANT: Think beyond what the user literally typed. Consider what they ACTUALLY need to save money and stay safe.
+               For example: a child aged 8+ does NOT need a child seat by Singapore law — don't flag it. A "kid" without an age should be assumed young (needs a seat). Always optimize for the cheapest safe option.
+               
                Extract the following information:
                - "pickup": ONLY set this if the user EXPLICITLY indicates a starting location using words like "from", or uses a "X to Y" pattern where X is clearly a different location from Y. If the user just states a single destination (even with passenger info), set pickup to null. The system will use their GPS location.
                - "dropoff": the destination name or address (the "to" location, or the only location if just one is given)
                - "distanceKm": estimated distance in km between pickup and dropoff. If user provides explicit pickup, estimate from that location to dropoff. Otherwise estimate from the GPS coordinates to dropoff.
                - "passengers": number of passengers (default 1 if not mentioned). Count adults + children + babies.
-               - "needsBabySeat": true if user mentions baby, infant, toddler, child seat, or car seat (default false)
+               - "needsBabySeat": true if user mentions baby, infant, toddler, child, kid, or any child aged 7 or below (default false). If all children mentioned are aged 8 or above, set this to false — they do not need a child seat.
                - "needsLargeVehicle": true if passengers > 4 or user mentions 6-seater, 7-seater, large vehicle, MPV, van (default false)
+               - "childAges": array of integers representing the ages of each child/baby/infant/toddler mentioned. Use context clues: "baby" = 1, "infant" = 0, "toddler" = 2. If user says "4 year old" put [4]. If "1 baby and 1 4 year old" put [1, 4]. If no children mentioned, return empty array [].
                Return ONLY a valid raw JSON object. Do not wrap in markdown boxes.`,
       prompt: `Current Location Context (GPS): ${currentGpsLocation}. User Request: "${enrichedPrompt}"`,
     });
@@ -245,7 +249,34 @@ export default async function handler(req, res) {
     const passengers = parseInt(parsedContext.passengers) || 1;
     const needsBabySeat = parsedContext.needsBabySeat === true;
     const needsLargeVehicle = parsedContext.needsLargeVehicle === true || passengers > 4;
+    const childAges = Array.isArray(parsedContext.childAges) ? parsedContext.childAges.filter(a => typeof a === 'number') : [];
     const resolvedPickup = parsedContext.pickup || currentGpsLocation;
+
+    // Smart child seat tier logic:
+    // - If ANY child is aged 0–3 → must use "Age 1–3" seat
+    // - If ALL children are aged 4–7 → can use cheaper "Age 4–7" seat
+    // - If ALL children are aged 8+ → no child seat needed at all (standard car)
+    // - If no specific ages given but needsBabySeat is true → default to "Age 1–3" (safest)
+    let childSeatTier = 'none'; // 'none' | 'age1to7' | 'age4to7'
+    if (needsBabySeat) {
+      if (childAges.length === 0) {
+        // User said "baby"/"kid" without specifying age — assume youngest tier
+        childSeatTier = 'age1to7';
+      } else {
+        const youngestChild = Math.min(...childAges);
+        if (youngestChild >= 8) {
+          // All children are 8+ — no child seat required, treat as regular passengers
+          childSeatTier = 'none';
+        } else if (youngestChild >= 4) {
+          childSeatTier = 'age4to7';
+        } else {
+          childSeatTier = 'age1to7';
+        }
+      }
+    }
+
+    // Override needsBabySeat if all children are 8+ (no seat needed — saves money)
+    const effectiveNeedsBabySeat = childSeatTier !== 'none';
 
     // Verify dropoff against OneMap for consistent, official address with postal code
     let dropoffDisplay = parsedContext.dropoff;
@@ -413,46 +444,63 @@ export default async function handler(req, res) {
       ComfortDelGro: { largeVehicle: true, babySeat: true },
     };
 
-    // Car type labels based on provider + requirements
+    // Car type labels based on provider + requirements + child age tier
     const CAR_TYPES = {
       Grab: {
         standard: 'JustGrab 4-Seater',
-        babySeat: 'GrabFamily 4-Seater (Child Seat, Age 1–7)',
+        babySeat_age1to7: 'GrabFamily 4-Seater (Child Seat, Age 1–3)',
+        babySeat_age4to7: 'GrabFamily 4-Seater (Child Seat, Age 4–7)',
         largeVehicle: 'Grab 6-Seater',
-        largeBaby: 'GrabFamily 6-Seater (Child Seat, Age 1–7)',
+        largeBaby_age1to7: 'GrabFamily 6-Seater (Child Seat, Age 1–3)',
+        largeBaby_age4to7: 'GrabFamily 6-Seater (Child Seat, Age 4–7)',
       },
       TADA: {
         standard: 'TADA Standard 4-Seater',
-        babySeat: 'TADA Standard 4-Seater',
+        babySeat_age1to7: 'TADA Standard 4-Seater',
+        babySeat_age4to7: 'TADA Standard 4-Seater',
         largeVehicle: 'TADA Standard 4-Seater',
-        largeBaby: 'TADA Standard 4-Seater',
+        largeBaby_age1to7: 'TADA Standard 4-Seater',
+        largeBaby_age4to7: 'TADA Standard 4-Seater',
       },
       Gojek: {
         standard: 'GoCar 4-Seater',
-        babySeat: 'GoCar 4-Seater',
+        babySeat_age1to7: 'GoCar 4-Seater',
+        babySeat_age4to7: 'GoCar 4-Seater',
         largeVehicle: 'GoCar 4-Seater',
-        largeBaby: 'GoCar 4-Seater',
+        largeBaby_age1to7: 'GoCar 4-Seater',
+        largeBaby_age4to7: 'GoCar 4-Seater',
       },
       Ryde: {
         standard: 'RydeX 4-Seater',
-        babySeat: 'RydeX 4-Seater',
+        babySeat_age1to7: 'RydeX 4-Seater',
+        babySeat_age4to7: 'RydeX 4-Seater',
         largeVehicle: 'RydeX 4-Seater',
-        largeBaby: 'RydeX 4-Seater',
+        largeBaby_age1to7: 'RydeX 4-Seater',
+        largeBaby_age4to7: 'RydeX 4-Seater',
       },
       ComfortDelGro: {
         standard: 'ComfortRIDE 4-Seater',
-        babySeat: 'ComfortRIDE Family (Child Seat, Age 1–7)',
+        babySeat_age1to7: 'ComfortRIDE Family (Child Seat, Age 1–3)',
+        babySeat_age4to7: 'ComfortRIDE Family (Child Seat, Age 4–7)',
         largeVehicle: 'ComfortRIDE 6-Seater',
-        largeBaby: 'ComfortRIDE Family 6-Seater (Child Seat, Age 1–7)',
+        largeBaby_age1to7: 'ComfortRIDE Family 6-Seater (Child Seat, Age 1–3)',
+        largeBaby_age4to7: 'ComfortRIDE Family 6-Seater (Child Seat, Age 4–7)',
       },
     };
 
-    // Determine which car type variant to use
+    // Determine which car type variant to use — picks cheapest eligible seat tier
     function getCarType(provider) {
-      if (needsBabySeat && needsLargeVehicle) return CAR_TYPES[provider]?.largeBaby || CAR_TYPES[provider]?.standard;
-      if (needsBabySeat) return CAR_TYPES[provider]?.babySeat || CAR_TYPES[provider]?.standard;
-      if (needsLargeVehicle) return CAR_TYPES[provider]?.largeVehicle || CAR_TYPES[provider]?.standard;
-      return CAR_TYPES[provider]?.standard || 'Standard 4-Seater';
+      const types = CAR_TYPES[provider];
+      if (!types) return 'Standard 4-Seater';
+
+      if (effectiveNeedsBabySeat && needsLargeVehicle) {
+        return childSeatTier === 'age4to7' ? types.largeBaby_age4to7 : types.largeBaby_age1to7;
+      }
+      if (effectiveNeedsBabySeat) {
+        return childSeatTier === 'age4to7' ? types.babySeat_age4to7 : types.babySeat_age1to7;
+      }
+      if (needsLargeVehicle) return types.largeVehicle;
+      return types.standard;
     }
 
     let optionsPool = [];
@@ -462,7 +510,7 @@ export default async function handler(req, res) {
     if (activePlatforms.includes('Ryde')) optionsPool.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: fareMatrix.ryde.rideDurationMinutes, carType: getCarType('Ryde') });
     if (activePlatforms.includes('ComfortDelGro')) optionsPool.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: fareMatrix.cdg.rideDurationMinutes, carType: getCarType('ComfortDelGro') });
 
-    if (needsBabySeat) {
+    if (effectiveNeedsBabySeat) {
       optionsPool = optionsPool.filter(opt => PROVIDER_FEATURES[opt.provider]?.babySeat);
     }
     if (needsLargeVehicle) {
@@ -546,7 +594,12 @@ export default async function handler(req, res) {
     if (dropoffTips.length > 0) {
       alerts.push(`📍 Drop-off tip: ${dropoffTips[0].slice(0, 120)}`);
     }
-    if (needsBabySeat) alerts.push("👶 Baby seat requested — showing only providers with child seat support.");
+    if (effectiveNeedsBabySeat) {
+      const tierLabel = childSeatTier === 'age4to7' ? 'Age 4–7 (cheaper tier)' : 'Age 1–3';
+      alerts.push(`👶 Child seat requested (${tierLabel}) — showing only providers with child seat support.`);
+    } else if (needsBabySeat && childAges.length > 0 && Math.min(...childAges) >= 8) {
+      alerts.push("👦 Child is 8+ — no child seat required by law. Booking standard car to save cost.");
+    }
     if (needsLargeVehicle) alerts.push(`� ${passengers} passengers — showing 6/7-seater options (higher fare applies).`);
 
     const finalCheapest = [...optionsPool].sort((a, b) => a.price - b.price)[0];
