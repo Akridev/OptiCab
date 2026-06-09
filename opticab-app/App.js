@@ -175,12 +175,17 @@ export default function App() {
     } catch {}
   };
 
-  const saveCurrentRoute = async (name) => {
+  const saveCurrentRoute = async () => {
     if (!deviceId || !promptText.trim()) {
       Alert.alert('No route', 'Enter a destination first before saving.');
       return;
     }
-    doSaveRoute(name);
+    Alert.alert('Save Route', 'Save this route as:', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: '🏠 Home', onPress: () => doSaveRoute('Home') },
+      { text: '💼 Work', onPress: () => doSaveRoute('Work') },
+      { text: '📍 Saved', onPress: () => doSaveRoute('Saved Route') },
+    ]);
   };
 
   const doSaveRoute = async (name) => {
@@ -192,10 +197,22 @@ export default function App() {
       });
       const data = await res.json();
       if (data.routes) setSavedRoutes(data.routes);
-      Alert.alert('Saved!', `"${name}" updated.`);
+      Alert.alert('Saved!', `"${name}" added to your routes.`);
     } catch {
       Alert.alert('Error', 'Could not save route.');
     }
+  };
+
+  const deleteSavedRoute = async (routeId) => {
+    try {
+      const res = await fetch(SAVED_ROUTES_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, action: 'delete', routeId }),
+      });
+      const data = await res.json();
+      if (data.routes) setSavedRoutes(data.routes);
+    } catch {}
   };
 
   const saveToHistory = async (resultData) => {
@@ -250,7 +267,7 @@ export default function App() {
   };
 
   // 3. Unified Search Function — wrapped in useCallback to stabilise the radar useEffect dep
-  const handleSearchCommute = useCallback(async (isBackgroundRefresh = false, isRetry = false) => {
+  const handleSearchCommute = useCallback(async (isBackgroundRefresh = false) => {
     if (!promptText.trim()) return;
     if (!isBackgroundRefresh) setLoading(true);
 
@@ -324,16 +341,7 @@ export default function App() {
       });
 
       const data = await response.json();
-      if (data.error) {
-        setResult({ isInvalidInput: true, message: data.error });
-      } else if (data.isInvalidInput && !isBackgroundRefresh && !isRetry) {
-        // Show "searching again" and auto-retry once
-        setResult({ isInvalidInput: true, message: "\uD83D\uDD0D OptiCab searching again..." });
-        setTimeout(() => handleSearchCommute(false, true), 1500);
-        return;
-      } else {
-        setResult(data);
-      }
+      setResult(data);
       // Auto-scroll to results
       if (!isBackgroundRefresh && data && !data.isInvalidInput) {
         setTimeout(() => {
@@ -427,26 +435,34 @@ export default function App() {
             returnKeyType="search"
           />
 
-          {/* Saved Routes: Home & Work */}
-          <View style={styles.savedRoutesRow}>
-            <TouchableOpacity
-              style={styles.savedRouteChip}
-              onPress={() => { const home = savedRoutes.find(r => r.name === 'Home'); if (home) setPromptText(home.prompt); else Alert.alert('No Home set', 'Long-press to save your current input as Home.'); }}
-              onLongPress={() => saveCurrentRoute('Home')}
-            >
-              <Text style={styles.savedRouteText}>🏠 Home</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.savedRouteChip}
-              onPress={() => { const work = savedRoutes.find(r => r.name === 'Work'); if (work) setPromptText(work.prompt); else Alert.alert('No Work set', 'Long-press to save your current input as Work.'); }}
-              onLongPress={() => saveCurrentRoute('Work')}
-            >
-              <Text style={styles.savedRouteText}>💼 Work</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Saved Routes Quick-Access */}
+          {savedRoutes.length > 0 && (
+            <View style={styles.savedRoutesRow}>
+              {savedRoutes.map((route) => (
+                <TouchableOpacity
+                  key={route.id}
+                  style={styles.savedRouteChip}
+                  onPress={() => { setPromptText(route.prompt); }}
+                  onLongPress={() => {
+                    Alert.alert('Delete Route', `Remove "${route.name}"?`, [
+                      { text: 'Cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: () => deleteSavedRoute(route.id) },
+                    ]);
+                  }}
+                >
+                  <Text style={styles.savedRouteText}>{route.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
-          {/* History button */}
+          {/* Save Route + History buttons */}
           <View style={styles.quickActionsRow}>
+            {promptText.trim().length > 0 && (
+              <TouchableOpacity style={styles.saveRouteBtn} onPress={saveCurrentRoute}>
+                <Text style={styles.saveRouteBtnText}>💾 Save Route</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.historyBtn} onPress={() => setShowHistory(!showHistory)}>
               <Text style={styles.historyBtnText}>{showHistory ? '✕ Hide History' : '📋 History'}</Text>
             </TouchableOpacity>
