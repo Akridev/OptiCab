@@ -53,7 +53,7 @@ export default async function handler(req, res) {
       { type: "auto", numResults: 1, contents: { highlights: true } }
     );
 
-    const lambdaPromise = fetch(process.env.AWS_LAMBDA_FARES_ENDPOINT, {
+    const lambdaPromise = fetch(`https://opticab-backend.vercel.app/api/fares`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -61,27 +61,9 @@ export default async function handler(req, res) {
         dropoffLocation: parsedContext.dropoff,
         distanceKmOverride: targetDistance,
       }),
-    }).then(async r => {
-      const raw = await r.text();
-      let parsed;
-      try { parsed = JSON.parse(raw); } catch { throw new Error(`Lambda returned non-JSON: ${raw.slice(0, 500)}`); }
-      // Lambda Function URL may wrap response or return directly
-      if (parsed.body && typeof parsed.body === 'string') {
-        return JSON.parse(parsed.body);
-      }
-      return parsed;
-    });
+    }).then(r => r.json());
 
     const [fareMatrix, exaResults] = await Promise.all([lambdaPromise, exaPromise]);
-    
-    // DEBUG: if fareMatrix doesn't have expected shape, return it for inspection
-    if (!fareMatrix || !fareMatrix.grab) {
-      return res.status(500).json({ 
-        error: "Lambda response missing expected keys",
-        lambdaResponse: fareMatrix
-      });
-    }
-
     const weatherHighlights = exaResults.results.flatMap(r => r.highlights);
     const isRaining = weatherHighlights.some(text => /rain|downpour|thunderstorm|flood/i.test(text));
 

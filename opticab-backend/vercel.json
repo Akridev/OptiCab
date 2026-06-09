@@ -3,6 +3,9 @@
   "functions": {
     "api/recommendation.js": {
       "maxDuration": 30
+    },
+    "api/fares.js": {
+      "maxDuration": 10
     }
   }
 }
