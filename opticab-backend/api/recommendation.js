@@ -116,8 +116,8 @@ export default async function handler(req, res) {
       model: groq('llama-3.1-8b-instant'),
       system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
                Extract the following information:
-               - "pickup": if the user explicitly mentions a pickup location (e.g., "from Bukit Gombak"), use that. Otherwise set to null (the system will use GPS).
-               - "dropoff": the destination name or address
+               - "pickup": if the user mentions a pickup location in any format (e.g., "from Bukit Gombak", "643658 to 650350" where first is pickup, "bukit batok to orchard" where first is pickup), extract it. If the format is "X to Y", X is the pickup. If there is no pickup location indicated, set to null (the system will use GPS).
+               - "dropoff": the destination name or address (the "to" location, or the only location if just one is given)
                - "distanceKm": estimated distance in km between pickup and dropoff. If user provides explicit pickup, estimate from that location to dropoff. Otherwise estimate from the GPS coordinates to dropoff.
                - "passengers": number of passengers (default 1 if not mentioned)
                - "needsBabySeat": true if user mentions baby, infant, toddler, child seat, or car seat (default false)

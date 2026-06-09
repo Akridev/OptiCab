@@ -60,7 +60,12 @@ export default function App() {
 
     try {
       // Check if user specified a "from" location — if so, we don't need GPS
-      const userSpecifiedPickup = /\bfrom\b/i.test(promptText);
+      // Detects: "from X to Y", "643658 to 650350", "bukit batok to orchard"
+      // But NOT: "take me to orchard" (no explicit pickup)
+      const hasFromKeyword = /\bfrom\b/i.test(promptText);
+      const hasTwoPostalCodes = (promptText.match(/\b\d{6}\b/g) || []).length >= 2;
+      const hasExplicitPickupBeforeTo = /^[^]*?\S+\s+to\s+/i.test(promptText) && !/\b(take|bring|go|get)\s+(me\s+)?to\b/i.test(promptText);
+      const userSpecifiedPickup = hasFromKeyword || hasTwoPostalCodes || hasExplicitPickupBeforeTo;
 
       let locationContext = null;
       let coords = null;
@@ -246,15 +251,15 @@ export default function App() {
             )}
           </View>
 
-          {/* Invalid input warning block */}
-          {result && result.isInvalidInput && (
+          {/* Invalid input or error warning block */}
+          {result && (result.isInvalidInput || result.error) && (
             <View style={styles.alertBox}>
-              <Text style={[styles.alertText, { fontWeight: 'bold' }]}>{result.message}</Text>
+              <Text style={[styles.alertText, { fontWeight: 'bold' }]}>{result.message || result.error || 'Something went wrong. Please try again.'}</Text>
             </View>
           )}
 
           {/* Core comparison layout */}
-          {result && !result.isInvalidInput && (
+          {result && !result.isInvalidInput && result.extractedRoute && (
             <View style={{ marginBottom: 100 }}>
               <View style={styles.routeConfirm}>
                 <Text style={styles.confirmText}>📍 From: {getDropoffName(result.extractedRoute.pickup)}</Text>
