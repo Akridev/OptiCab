@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Alert, Keyboard, ScrollView, Platform, Modal } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
@@ -6,15 +6,14 @@ import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView } from 'react-native-webview';
 
-// ─────────────────────────────────────────────
-// CONFIG — swap this to your live Vercel URL once deployed
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// CONFIG â€” swap this to your live Vercel URL once deployed
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
 const CREATE_PAYMENT_URL = 'https://opticab-backend.vercel.app/api/create-payment';
 const PAYMENT_FORM_URL = 'https://opticab-backend.vercel.app/api/payment-form';
 const SUBSCRIPTION_STATUS_URL = 'https://opticab-backend.vercel.app/api/subscription-status';
 const SAVED_ROUTES_URL = 'https://opticab-backend.vercel.app/api/saved-routes';
-const RIDE_HISTORY_URL = 'https://opticab-backend.vercel.app/api/ride-history';
 
 // 1. Define all supported apps in Singapore
 const AVAILABLE_APPS = ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
@@ -118,7 +117,7 @@ export default function App() {
         await AsyncStorage.removeItem('opticab_premium');
       }
     } catch {
-      // Offline fallback — check local cache
+      // Offline fallback â€” check local cache
       const cached = await AsyncStorage.getItem('opticab_premium');
       setIsPremium(cached === 'true');
     } finally {
@@ -165,27 +164,17 @@ export default function App() {
 
   const loadRideHistory = async () => {
     try {
-      const res = await fetch(RIDE_HISTORY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, action: 'get' }),
-      });
-      const data = await res.json();
-      setRideHistory(data.history || []);
+      const stored = await AsyncStorage.getItem('opticab_history');
+      if (stored) setRideHistory(JSON.parse(stored));
     } catch {}
   };
 
-  const saveCurrentRoute = async () => {
+  const saveCurrentRoute = async (name) => {
     if (!deviceId || !promptText.trim()) {
       Alert.alert('No route', 'Enter a destination first before saving.');
       return;
     }
-    Alert.alert('Save Route', 'Save this route as:', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: '🏠 Home', onPress: () => doSaveRoute('Home') },
-      { text: '💼 Work', onPress: () => doSaveRoute('Work') },
-      { text: '📍 Saved', onPress: () => doSaveRoute('Saved Route') },
-    ]);
+    doSaveRoute(name);
   };
 
   const doSaveRoute = async (name) => {
@@ -197,46 +186,24 @@ export default function App() {
       });
       const data = await res.json();
       if (data.routes) setSavedRoutes(data.routes);
-      Alert.alert('Saved!', `"${name}" added to your routes.`);
+      Alert.alert('Saved!', `"${name}" updated.`);
     } catch {
       Alert.alert('Error', 'Could not save route.');
     }
   };
 
-  const deleteSavedRoute = async (routeId) => {
+  const saveToHistory = async () => {
     try {
-      const res = await fetch(SAVED_ROUTES_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, action: 'delete', routeId }),
-      });
-      const data = await res.json();
-      if (data.routes) setSavedRoutes(data.routes);
+      const newEntry = { prompt: promptText.trim() };
+      const stored = await AsyncStorage.getItem('opticab_history');
+      let history = stored ? JSON.parse(stored) : [];
+      if (history.some(h => h.prompt === newEntry.prompt)) return;
+      history = [newEntry, ...history].slice(0, 3);
+      await AsyncStorage.setItem('opticab_history', JSON.stringify(history));
+      setRideHistory(history);
     } catch {}
   };
 
-  const saveToHistory = async (resultData) => {
-    if (!deviceId || !resultData?.extractedRoute) return;
-    try {
-      await fetch(RIDE_HISTORY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId,
-          action: 'save',
-          ride: {
-            pickup: resultData.extractedRoute.pickup,
-            dropoff: resultData.extractedRoute.dropoff,
-            cheapestProvider: resultData.cheapest?.provider,
-            cheapestPrice: resultData.cheapest?.price,
-            fastestProvider: resultData.fastest?.provider,
-            fastestPrice: resultData.fastest?.price,
-            prompt: promptText,
-          },
-        }),
-      });
-    } catch {}
-  };
 
   const handlePaymentMessage = (event) => {
     try {
@@ -245,7 +212,7 @@ export default function App() {
         setShowPaymentModal(false);
         setIsPremium(true);
         AsyncStorage.setItem('opticab_premium', 'true');
-        Alert.alert('🎉 Welcome to Premium!', 'The 30s Auto-Polling Radar is now unlocked.');
+        Alert.alert('ðŸŽ‰ Welcome to Premium!', 'The 30s Auto-Polling Radar is now unlocked.');
         // Verify with backend
         checkSubscriptionStatus();
       }
@@ -266,13 +233,13 @@ export default function App() {
     }
   };
 
-  // 3. Unified Search Function — wrapped in useCallback to stabilise the radar useEffect dep
+  // 3. Unified Search Function â€” wrapped in useCallback to stabilise the radar useEffect dep
   const handleSearchCommute = useCallback(async (isBackgroundRefresh = false) => {
     if (!promptText.trim()) return;
     if (!isBackgroundRefresh) setLoading(true);
 
     try {
-      // Check if user specified a "from" location — if so, we don't need GPS
+      // Check if user specified a "from" location â€” if so, we don't need GPS
       // Detects: "from X to Y", "643658 to 650350", "bukit batok to orchard"
       // But NOT: "take me to orchard" (no explicit pickup)
       const hasFromKeyword = /\bfrom\b/i.test(promptText);
@@ -284,7 +251,7 @@ export default function App() {
       let coords = null;
 
       if (!userSpecifiedPickup) {
-        // Check existing permission status first — don't bug the user if already granted
+        // Check existing permission status first â€” don't bug the user if already granted
         let { status } = await Location.getForegroundPermissionsAsync();
 
         if (status !== 'granted') {
@@ -320,7 +287,7 @@ export default function App() {
           }
         }
 
-        // Permission granted — get location silently
+        // Permission granted â€” get location silently
         let loc = await Location.getCurrentPositionAsync({});
         coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
         locationContext = `${coords.lat}, ${coords.lng}`;
@@ -350,7 +317,7 @@ export default function App() {
       }
       // Auto-save to history (non-blocking)
       if (!isBackgroundRefresh && data && !data.isInvalidInput && data.extractedRoute) {
-        saveToHistory(data);
+        saveToHistory();
       }
     } catch (err) {
       console.error(err);
@@ -360,7 +327,7 @@ export default function App() {
     } finally {
       if (!isBackgroundRefresh) setLoading(false);
     }
-  }, [promptText, selectedApps]); // useCallback deps — radar closure always gets fresh values
+  }, [promptText, selectedApps]); // useCallback deps â€” radar closure always gets fresh values
 
   // 4. Premium Automated 30-Second Background Radar Loop
   useEffect(() => {
@@ -373,13 +340,13 @@ export default function App() {
     return () => clearInterval(radarTimer);
   }, [isPremium, isAutoPolling, result, handleSearchCommute]);
 
-  // 5. Deep Linking — uses live GPS coords as pickup, backend-resolved dropoff name
+  // 5. Deep Linking â€” uses live GPS coords as pickup, backend-resolved dropoff name
   const launchDeepLink = (provider, dropoffName) => {
     // Use live GPS if available, fall back to Geylang
     const pickupLat = resolvedCoords?.lat ?? 1.3048;
     const pickupLng = resolvedCoords?.lng ?? 103.8318;
 
-    // Dropoff: backend returns a place name string — encode it for URI use
+    // Dropoff: backend returns a place name string â€” encode it for URI use
     // Provider apps resolve the name on their end; coordinates used where available
     const encodedDropoff = encodeURIComponent(dropoffName || '');
 
@@ -435,63 +402,52 @@ export default function App() {
             returnKeyType="search"
           />
 
-          {/* Saved Routes Quick-Access */}
-          {savedRoutes.length > 0 && (
-            <View style={styles.savedRoutesRow}>
-              {savedRoutes.map((route) => (
-                <TouchableOpacity
-                  key={route.id}
-                  style={styles.savedRouteChip}
-                  onPress={() => { setPromptText(route.prompt); }}
-                  onLongPress={() => {
-                    Alert.alert('Delete Route', `Remove "${route.name}"?`, [
-                      { text: 'Cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => deleteSavedRoute(route.id) },
-                    ]);
-                  }}
-                >
-                  <Text style={styles.savedRouteText}>{route.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
+          {/* Saved Routes: Home & Work */}
+          <View style={styles.savedRoutesRow}>
+            <TouchableOpacity
+              style={styles.savedRouteChip}
+              onPress={() => { const home = savedRoutes.find(r => r.name === 'Home'); if (home) setPromptText(home.prompt); else Alert.alert('No Home saved', 'Long-press to save current input as Home.'); }}
+              onLongPress={() => saveCurrentRoute('Home')}
+            >
+              <Text style={styles.savedRouteText}>ðŸ  Home</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.savedRouteChip}
+              onPress={() => { const work = savedRoutes.find(r => r.name === 'Work'); if (work) setPromptText(work.prompt); else Alert.alert('No Work saved', 'Long-press to save current input as Work.'); }}
+              onLongPress={() => saveCurrentRoute('Work')}
+            >
+              <Text style={styles.savedRouteText}>ðŸ’¼ Work</Text>
+            </TouchableOpacity>
+          </View>
 
-          {/* Save Route + History buttons */}
+          {/* History button */}
           <View style={styles.quickActionsRow}>
-            {promptText.trim().length > 0 && (
-              <TouchableOpacity style={styles.saveRouteBtn} onPress={saveCurrentRoute}>
-                <Text style={styles.saveRouteBtnText}>💾 Save Route</Text>
-              </TouchableOpacity>
-            )}
             <TouchableOpacity style={styles.historyBtn} onPress={() => setShowHistory(!showHistory)}>
-              <Text style={styles.historyBtnText}>{showHistory ? '✕ Hide History' : '📋 History'}</Text>
+              <Text style={styles.historyBtnText}>{showHistory ? 'âœ• Hide History' : 'ðŸ“‹ History'}</Text>
             </TouchableOpacity>
           </View>
 
           {/* History Panel */}
+          {/* History Panel */}
           {showHistory && (
             <View style={styles.historyPanel}>
-              <Text style={styles.historyTitle}>Recent Searches</Text>
+              <Text style={styles.historyTitle}>Recent</Text>
               {rideHistory.length === 0 ? (
-                <Text style={styles.historyMeta}>No searches yet. Your history will appear here after your first search.</Text>
+                <Text style={styles.historyMeta}>No searches yet.</Text>
               ) : (
-                rideHistory.slice(0, 5).map((ride, idx) => (
+                rideHistory.map((item, idx) => (
                   <TouchableOpacity
                     key={idx}
                     style={styles.historyItem}
-                    onPress={() => { setPromptText(ride.prompt); setShowHistory(false); }}
+                    onPress={() => { setPromptText(item.prompt); setShowHistory(false); }}
                   >
-                    <Text style={styles.historyRoute}>{ride.pickup} → {ride.dropoff}</Text>
-                    <Text style={styles.historyMeta}>
-                      {ride.cheapestProvider} ${ride.cheapestPrice?.toFixed(2)} • {new Date(ride.timestamp).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                    </Text>
+                    <Text style={styles.historyRoute}>{item.prompt}</Text>
                   </TouchableOpacity>
                 ))
               )}
             </View>
           )}
 
-          {/* Checkbox Filter Matrix */}
           <Text style={styles.filterTitle}>Select Apps to Compare:</Text>
           <View style={styles.checkboxContainer}>
             {AVAILABLE_APPS.map((app) => {
@@ -503,7 +459,7 @@ export default function App() {
                   onPress={() => toggleAppSelection(app)}
                 >
                   <Text style={[styles.checkboxText, isChecked ? styles.textChecked : styles.textUnchecked]}>
-                    {isChecked ? '✓ ' : '+ '} {app}
+                    {isChecked ? 'âœ“ ' : '+ '} {app}
                   </Text>
                 </TouchableOpacity>
               );
@@ -525,7 +481,7 @@ export default function App() {
                 onPress={() => setIsAutoPolling(!isAutoPolling)}
               >
                 <Text style={isAutoPolling ? styles.radarBtnTextActive : styles.radarBtnTextInactive}>
-                  {isAutoPolling ? '📡 Radar: ON (30s)' : '🛰️ Start Auto-Radar'}
+                  {isAutoPolling ? 'ðŸ“¡ Radar: ON (30s)' : 'ðŸ›°ï¸ Start Auto-Radar'}
                 </Text>
               </TouchableOpacity>
             )}
@@ -542,40 +498,40 @@ export default function App() {
           {result && !result.isInvalidInput && result.extractedRoute && (
             <View style={{ marginBottom: 100 }}>
               <View style={styles.routeConfirm}>
-                <Text style={styles.confirmText}>{result.extractedRoute.pickupIsCurrentLocation ? '📌 Current: ' : '📍 From: '}{getDropoffName(result.extractedRoute.pickup)}</Text>
-                <Text style={styles.confirmText}>🏁 To: {getDropoffName(result.extractedRoute.dropoff)}</Text>
+                <Text style={styles.confirmText}>{result.extractedRoute.pickupIsCurrentLocation ? 'ðŸ“Œ Current: ' : 'ðŸ“ From: '}{getDropoffName(result.extractedRoute.pickup)}</Text>
+                <Text style={styles.confirmText}>ðŸ To: {getDropoffName(result.extractedRoute.dropoff)}</Text>
               </View>
 
               {result.alerts?.length > 0 && (
                 <View style={styles.alertBox}>
-                  <Text style={styles.alertTitle}>⚠️ Live Status Advisory</Text>
+                  <Text style={styles.alertTitle}>âš ï¸ Live Status Advisory</Text>
                   {result.alerts.map((alert, idx) => (
-                    <Text key={idx} style={styles.alertText}>• {alert}</Text>
+                    <Text key={idx} style={styles.alertText}>â€¢ {alert}</Text>
                   ))}
                 </View>
               )}
 
               {result.cheapest.provider === result.fastest.provider ? (
-                /* Combined card — same provider is both cheapest and fastest */
+                /* Combined card â€” same provider is both cheapest and fastest */
                 <View style={styles.gridSingle}>
                   <TouchableOpacity
                     style={styles.cardFull}
                     onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}
                   >
-                    <Text style={styles.cardHeader}>💰⚡ CHEAPEST & FASTEST</Text>
+                    <Text style={styles.cardHeader}>ðŸ’°âš¡ CHEAPEST & FASTEST</Text>
                     <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
                     <Text style={styles.provider}>{result.cheapest.provider}</Text>
                     {result.cheapest.carType && (
-                      <Text style={styles.carType}>🚘 {result.cheapest.carType}</Text>
+                      <Text style={styles.carType}>ðŸš˜ {result.cheapest.carType}</Text>
                     )}
                     {result.cheapest.eta != null && (
-                      <Text style={styles.timing}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
+                      <Text style={styles.timing}>ðŸš— Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
                     )}
                     {result.cheapest.rideDuration != null && (
-                      <Text style={styles.timing}>📍 Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
+                      <Text style={styles.timing}>ðŸ“ Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
                     )}
                     <Text style={styles.tapToOpen}>
-                      {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps →' : 'Tap to open app →'}
+                      {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps â†’' : 'Tap to open app â†’'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -586,20 +542,20 @@ export default function App() {
                     style={styles.card}
                     onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}
                   >
-                    <Text style={styles.cardHeader}>💰 CHEAPEST</Text>
+                    <Text style={styles.cardHeader}>ðŸ’° CHEAPEST</Text>
                     <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
                     <Text style={styles.provider}>{result.cheapest.provider}</Text>
                     {result.cheapest.carType && (
-                      <Text style={styles.carType}>🚘 {result.cheapest.carType}</Text>
+                      <Text style={styles.carType}>ðŸš˜ {result.cheapest.carType}</Text>
                     )}
                     {result.cheapest.eta != null && (
-                      <Text style={styles.timing}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
+                      <Text style={styles.timing}>ðŸš— Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
                     )}
                     {result.cheapest.rideDuration != null && (
-                      <Text style={styles.timing}>📍 Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
+                      <Text style={styles.timing}>ðŸ“ Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
                     )}
                     <Text style={styles.tapToOpen}>
-                      {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps →' : 'Tap to open app →'}
+                      {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps â†’' : 'Tap to open app â†’'}
                     </Text>
                   </TouchableOpacity>
 
@@ -607,19 +563,19 @@ export default function App() {
                     style={styles.card}
                     onPress={() => launchDeepLink(result.fastest.provider, getDropoffName(result.extractedRoute.dropoff))}
                   >
-                    <Text style={styles.cardHeader}>⚡ FASTEST</Text>
+                    <Text style={styles.cardHeader}>âš¡ FASTEST</Text>
                     <Text style={styles.price}>${result.fastest.price.toFixed(2)}</Text>
                     <Text style={styles.provider}>{result.fastest.provider}</Text>
                     {result.fastest.carType && (
-                      <Text style={styles.carType}>🚘 {result.fastest.carType}</Text>
+                      <Text style={styles.carType}>ðŸš˜ {result.fastest.carType}</Text>
                     )}
                     {result.fastest.eta != null && (
-                      <Text style={styles.timing}>🚗 Pickup: {result.fastest.eta} min ({getTimeString(result.fastest.eta)})</Text>
+                      <Text style={styles.timing}>ðŸš— Pickup: {result.fastest.eta} min ({getTimeString(result.fastest.eta)})</Text>
                     )}
                     {result.fastest.rideDuration != null && (
-                      <Text style={styles.timing}>📍 Dropoff: {result.fastest.rideDuration} min ({getTimeString(result.fastest.eta + result.fastest.rideDuration)})</Text>
+                      <Text style={styles.timing}>ðŸ“ Dropoff: {result.fastest.rideDuration} min ({getTimeString(result.fastest.eta + result.fastest.rideDuration)})</Text>
                     )}
-                    <Text style={styles.tapToOpen}>Tap to open app →</Text>
+                    <Text style={styles.tapToOpen}>Tap to open app â†’</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -630,7 +586,7 @@ export default function App() {
         {/* Stripe Paywall Footer */}
         {!isPremium && (
           <TouchableOpacity style={styles.upgradeBtn} onPress={handleUpgrade}>
-            <Text style={styles.upgradeText}>👑 Upgrade to unlock 30s Auto-Polling Radar</Text>
+            <Text style={styles.upgradeText}>ðŸ‘‘ Upgrade to unlock 30s Auto-Polling Radar</Text>
           </TouchableOpacity>
         )}
 
@@ -644,7 +600,7 @@ export default function App() {
           <SafeAreaView style={{ flex: 1, backgroundColor: '#FAFAFA' }}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
-                <Text style={styles.modalClose}>✕ Close</Text>
+                <Text style={styles.modalClose}>âœ• Close</Text>
               </TouchableOpacity>
             </View>
             {paymentUrl && (
@@ -763,7 +719,7 @@ const styles = StyleSheet.create({
   radarActive: {
     backgroundColor: '#1A73E8',
   },
-  // Split radarBtnText into two static styles — functions in StyleSheet aren't valid
+  // Split radarBtnText into two static styles â€” functions in StyleSheet aren't valid
   radarBtnTextActive: {
     fontWeight: '700',
     fontSize: 14,

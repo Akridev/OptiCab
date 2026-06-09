@@ -498,12 +498,9 @@ export default async function handler(req, res) {
     const exaPromise = getExaTransportAlerts(
       typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
     ).catch(() => ({ socialResults: { results: [] }, mrtResults: { results: [] }, eventResults: { results: [] } }));
-    const dropoffIntelPromise = getDropoffIntel(
-      typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
-    ).catch(() => ({ results: [] }));
 
-    const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers, dropoffIntel] = await Promise.all([
-      faresPromise, ltaPromise, weatherPromise, exaPromise, dropoffIntelPromise
+    const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers] = await Promise.all([
+      faresPromise, ltaPromise, weatherPromise, exaPromise
     ]);
 
     // â•â•â• PHASE 5: Analysis & Response â•â•â•
@@ -618,7 +615,7 @@ export default async function handler(req, res) {
     const socialHighlights = exaLayers.socialResults?.results?.flatMap(r => r.highlights) || [];
     const mrtHighlights = exaLayers.mrtResults?.results?.flatMap(r => r.highlights) || [];
     const eventHighlights = exaLayers.eventResults?.results?.flatMap(r => r.highlights) || [];
-    const dropoffTips = dropoffIntel?.results?.flatMap(r => r.highlights) || [];
+    const dropoffTips = [];
 
     const hasMrtDisruption = mrtHighlights.some(h => /disruption|delay|breakdown|fault/i.test(h));
     const hasEventSurge = eventHighlights.length > 0;

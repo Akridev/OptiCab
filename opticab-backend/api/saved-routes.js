@@ -1,5 +1,5 @@
 // api/saved-routes.js
-// CRUD for saved routes (Home, Work, etc.)
+// Simple Home & Work saved routes
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 
@@ -8,8 +8,10 @@ const docClient = DynamoDBDocumentClient.from(client);
 const TABLE = 'opticab-saved-routes';
 
 export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).end();
+
   const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
-  const { deviceId } = body;
+  const { deviceId, action } = body;
 
   if (!deviceId) {
     return res.status(400).json({ error: 'Device ID required' });
@@ -17,7 +19,7 @@ export default async function handler(req, res) {
 
   try {
     // GET saved routes
-    if (req.method === 'GET' || (req.method === 'POST' && body.action === 'get')) {
+    if (action === 'get') {
       const result = await docClient.send(new GetCommand({
         TableName: TABLE,
         Key: { deviceId },
@@ -25,11 +27,16 @@ export default async function handler(req, res) {
       return res.status(200).json({ routes: result.Item?.routes || [] });
     }
 
-    // SAVE a new route
-    if (req.method === 'POST' && body.action === 'save') {
+    // SAVE a route (Home or Work) — replaces existing if same name
+    if (action === 'save') {
       const { route } = body;
       if (!route || !route.name || !route.prompt) {
         return res.status(400).json({ error: 'Route must have name and prompt' });
+      }
+
+      // Only allow "Home" or "Work"
+      if (route.name !== 'Home' && route.name !== 'Work') {
+        return res.status(400).json({ error: 'Only Home and Work routes are supported' });
       }
 
       // Get existing routes
@@ -37,50 +44,32 @@ export default async function handler(req, res) {
         TableName: TABLE,
         Key: { deviceId },
       }));
-      const routes = existing.Item?.routes || [];
+      let routes = existing.Item?.routes || [];
 
-      // Max 10 saved routes
-      if (routes.length >= 10) {
-        return res.status(400).json({ error: 'Maximum 10 saved routes reached' });
-      }
-
-      // Add new route with ID
+      // Replace if exists, otherwise add
+      const idx = routes.findIndex(r => r.name === route.name);
       const newRoute = {
-        id: `route-${Date.now()}`,
+        id: `route-${route.name.toLowerCase()}`,
         name: route.name,
         prompt: route.prompt,
         createdAt: new Date().toISOString(),
       };
-      routes.push(newRoute);
+
+      if (idx >= 0) {
+        routes[idx] = newRoute;
+      } else {
+        routes.push(newRoute);
+      }
 
       await docClient.send(new PutCommand({
         TableName: TABLE,
         Item: { deviceId, routes },
       }));
 
-      return res.status(200).json({ routes, added: newRoute });
+      return res.status(200).json({ routes, saved: newRoute });
     }
 
-    // DELETE a saved route
-    if (req.method === 'POST' && body.action === 'delete') {
-      const { routeId } = body;
-      if (!routeId) return res.status(400).json({ error: 'Route ID required' });
-
-      const existing = await docClient.send(new GetCommand({
-        TableName: TABLE,
-        Key: { deviceId },
-      }));
-      const routes = (existing.Item?.routes || []).filter(r => r.id !== routeId);
-
-      await docClient.send(new PutCommand({
-        TableName: TABLE,
-        Item: { deviceId, routes },
-      }));
-
-      return res.status(200).json({ routes });
-    }
-
-    return res.status(400).json({ error: 'Invalid action. Use: get, save, delete' });
+    return res.status(400).json({ error: 'Invalid action. Use: get, save' });
   } catch (error) {
     console.error('Saved routes error:', error);
     return res.status(500).json({ error: 'Failed to manage saved routes', details: error.message });
