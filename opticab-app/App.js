@@ -66,36 +66,43 @@ export default function App() {
       let coords = null;
 
       if (!userSpecifiedPickup) {
-        // Show informational alert before requesting permission
-        const proceed = await new Promise((resolve) => {
-          Alert.alert(
-            'Location Permission Needed',
-            'OptiCab needs your current location to detect your pickup point. Without it, we cannot search for fares.\n\nPlease allow location access when prompted.',
-            [
-              { text: 'Cancel', onPress: () => resolve(false), style: 'cancel' },
-              { text: 'OK, Continue', onPress: () => resolve(true) },
-            ]
-          );
-        });
-
-        if (!proceed) {
-          setLoading(false);
-          return;
-        }
-
-        let { status } = await Location.requestForegroundPermissionsAsync();
+        // Check existing permission status first — don't bug the user if already granted
+        let { status } = await Location.getForegroundPermissionsAsync();
 
         if (status !== 'granted') {
-          // Permission denied — prompt again
-          Alert.alert(
-            'Location Required',
-            'OptiCab cannot detect your pickup location without GPS permission. Please specify a "from" location in your message (e.g., "from Bukit Batok to Orchard") or enable location access in your device settings.',
-            [{ text: 'OK' }]
-          );
-          setLoading(false);
-          return;
+          // Only show info popup if permission hasn't been granted yet
+          const proceed = await new Promise((resolve) => {
+            Alert.alert(
+              'Location Permission Needed',
+              'OptiCab needs your current location to detect your pickup point. Without it, we cannot search for fares.\n\nPlease allow location access when prompted.',
+              [
+                { text: 'Cancel', onPress: () => resolve(false), style: 'cancel' },
+                { text: 'OK, Continue', onPress: () => resolve(true) },
+              ]
+            );
+          });
+
+          if (!proceed) {
+            setLoading(false);
+            return;
+          }
+
+          // Now request permission
+          const permResult = await Location.requestForegroundPermissionsAsync();
+          status = permResult.status;
+
+          if (status !== 'granted') {
+            Alert.alert(
+              'Location Required',
+              'OptiCab cannot detect your pickup location without GPS permission. Please specify a "from" location in your message (e.g., "from Bukit Batok to Orchard") or enable location access in your device settings.',
+              [{ text: 'OK' }]
+            );
+            setLoading(false);
+            return;
+          }
         }
 
+        // Permission granted — get location silently
         let loc = await Location.getCurrentPositionAsync({});
         coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
         locationContext = `${coords.lat}, ${coords.lng}`;

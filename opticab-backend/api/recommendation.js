@@ -140,8 +140,18 @@ export default async function handler(req, res) {
       // It's coordinates — reverse geocode via OneMap
       try {
         const [lat, lng] = resolvedPickup.split(',').map(s => s.trim());
+        // Get OneMap token for auth
+        const tokenRes = await fetch('https://www.onemap.gov.sg/api/auth/post/getToken', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: process.env.ONEMAP_EMAIL, password: process.env.ONEMAP_PASSWORD }),
+        });
+        const tokenData = await tokenRes.json();
+        const token = tokenData.access_token;
+
         const revGeoResponse = await fetch(
-          `https://www.onemap.gov.sg/api/public/revgeocode?location=${lat},${lng}&buffer=50&addressType=All`
+          `https://www.onemap.gov.sg/api/public/revgeocode?location=${lat},${lng}&buffer=100&addressType=All`,
+          { headers: { Authorization: token } }
         );
         const revGeoData = await revGeoResponse.json();
         if (revGeoData.GeocodeInfo && revGeoData.GeocodeInfo.length > 0) {
@@ -151,7 +161,7 @@ export default async function handler(req, res) {
             : `${info.BLOCK || ''} ${info.ROAD}`.trim();
         }
       } catch {
-        // Keep coordinates as fallback
+        // Keep coordinates as fallback if OneMap is unavailable
       }
     }
 
