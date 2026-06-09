@@ -14,9 +14,14 @@ const AVAILABLE_APPS = ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
 // Helper: compute clock time from now + minutes offset (Singapore time)
 const getTimeString = (minutesFromNow) => {
   const now = new Date();
-  const sg = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));
-  sg.setMinutes(sg.getMinutes() + minutesFromNow);
-  return sg.toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: true });
+  const futureTime = new Date(now.getTime() + minutesFromNow * 60 * 1000);
+  // Format in Singapore timezone
+  return futureTime.toLocaleTimeString('en-SG', { 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    hour12: true,
+    timeZone: 'Asia/Singapore'
+  });
 };
 
 // Helper: extract display name from dropoff (handles both string and object from backend)
