@@ -229,8 +229,6 @@ export default async function handler(req, res) {
     const { text: llmOutput } = await generateText({
       model: groq('llama-3.1-8b-instant'),
       system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
-               IMPORTANT: Think beyond what the user literally typed. Consider what they ACTUALLY need to save money and stay safe.
-               For example: a child aged 8+ does NOT need a child seat by Singapore law — don't flag it. A "kid" without an age should be assumed young (needs a seat). Always optimize for the cheapest safe option.
                
                Extract the following information:
                - "pickup": ONLY set this if the user EXPLICITLY indicates a starting location using words like "from", or uses a "X to Y" pattern where X is clearly a different location from Y. If the user just states a single destination (even with passenger info), set pickup to null. The system will use their GPS location.
