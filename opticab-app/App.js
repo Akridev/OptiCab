@@ -250,7 +250,7 @@ export default function App() {
   };
 
   // 3. Unified Search Function — wrapped in useCallback to stabilise the radar useEffect dep
-  const handleSearchCommute = useCallback(async (isBackgroundRefresh = false) => {
+  const handleSearchCommute = useCallback(async (isBackgroundRefresh = false, isRetry = false) => {
     if (!promptText.trim()) return;
     if (!isBackgroundRefresh) setLoading(true);
 
@@ -324,7 +324,16 @@ export default function App() {
       });
 
       const data = await response.json();
-      setResult(data);
+      if (data.error) {
+        setResult({ isInvalidInput: true, message: data.error });
+      } else if (data.isInvalidInput && !isBackgroundRefresh && !isRetry) {
+        // Show "searching again" and auto-retry once
+        setResult({ isInvalidInput: true, message: "\uD83D\uDD0D OptiCab searching again..." });
+        setTimeout(() => handleSearchCommute(false, true), 1500);
+        return;
+      } else {
+        setResult(data);
+      }
       // Auto-scroll to results
       if (!isBackgroundRefresh && data && !data.isInvalidInput) {
         setTimeout(() => {

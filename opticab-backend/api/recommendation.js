@@ -315,6 +315,12 @@ export default async function handler(req, res) {
       }
     }
     let targetDistance = parseFloat(parsedContext.distanceKm);
+    if (!targetDistance || isNaN(targetDistance)) {
+      return res.status(200).json({
+        isInvalidInput: true,
+        message: "\uD83E\uDD16 OptiCab couldn't estimate the distance for this route. Please try rephrasing (e.g., \"From Bukit Batok to Orchard\")."
+      });
+    }
     const passengers = parseInt(parsedContext.passengers) || 1;
     const needsBabySeat = parsedContext.needsBabySeat === true;
     const needsLargeVehicle = parsedContext.needsLargeVehicle === true || passengers > 4;
@@ -639,8 +645,12 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error("OptiCab backend failure:", error);
-    return res.status(500).json({ error: "Agent engine failed to map parameters.", details: error.message });
+    console.error("OptiCab backend failure:", error?.message, error?.stack);
+    // Return a user-friendly error instead of 500
+    return res.status(200).json({
+      isInvalidInput: true,
+      message: "\uD83E\uDD16 Something went wrong processing your request. Please try again or rephrase your input."
+    });
   }
 }
 
