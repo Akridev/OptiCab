@@ -218,7 +218,8 @@ export default function App() {
           {result && !result.isInvalidInput && (
             <View style={{ marginBottom: 100 }}>
               <View style={styles.routeConfirm}>
-                <Text style={styles.confirmText}>🗺️ Destination Locked: {getDropoffName(result.extractedRoute.dropoff)}</Text>
+                <Text style={styles.confirmText}>📍 From: {getDropoffName(result.extractedRoute.pickup)}</Text>
+                <Text style={styles.confirmText}>🏁 To: {getDropoffName(result.extractedRoute.dropoff)}</Text>
               </View>
 
               {result.alerts?.length > 0 && (
