@@ -8,7 +8,9 @@ const exa = new Exa(process.env.EXA_API_KEY);
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { userPrompt, currentGpsLocation, allowedApps } = req.body;
+  // Explicitly parse body — Vercel ESM functions don't auto-parse JSON
+  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
+  const { userPrompt, currentGpsLocation, allowedApps } = body;
   const activePlatforms = allowedApps || ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
 
   if (!userPrompt || !userPrompt.trim()) {
