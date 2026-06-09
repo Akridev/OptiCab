@@ -21,6 +21,12 @@
     },
     "api/subscription-status.js": {
       "maxDuration": 10
+    },
+    "api/saved-routes.js": {
+      "maxDuration": 10
+    },
+    "api/ride-history.js": {
+      "maxDuration": 10
     }
   }
 }

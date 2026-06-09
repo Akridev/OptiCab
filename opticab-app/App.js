@@ -13,6 +13,8 @@ const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
 const CREATE_PAYMENT_URL = 'https://opticab-backend.vercel.app/api/create-payment';
 const PAYMENT_FORM_URL = 'https://opticab-backend.vercel.app/api/payment-form';
 const SUBSCRIPTION_STATUS_URL = 'https://opticab-backend.vercel.app/api/subscription-status';
+const SAVED_ROUTES_URL = 'https://opticab-backend.vercel.app/api/saved-routes';
+const RIDE_HISTORY_URL = 'https://opticab-backend.vercel.app/api/ride-history';
 
 // 1. Define all supported apps in Singapore
 const AVAILABLE_APPS = ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
@@ -53,6 +55,9 @@ export default function App() {
   const [checkingSubscription, setCheckingSubscription] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentUrl, setPaymentUrl] = useState(null);
+  const [savedRoutes, setSavedRoutes] = useState([]);
+  const [rideHistory, setRideHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Get or generate a stable device ID
   useEffect(() => {
@@ -89,6 +94,13 @@ export default function App() {
     return () => subscription?.remove();
   }, [deviceId]);
 
+  // Load saved routes and history when deviceId is ready
+  useEffect(() => {
+    if (!deviceId) return;
+    loadSavedRoutes();
+    loadRideHistory();
+  }, [deviceId]);
+
   const checkSubscriptionStatus = async () => {
     if (!deviceId) return;
     try {
@@ -119,7 +131,6 @@ export default function App() {
       return;
     }
     try {
-      // Create a payment intent on the backend
       const response = await fetch(CREATE_PAYMENT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -127,7 +138,6 @@ export default function App() {
       });
       const data = await response.json();
       if (data.clientSecret && data.publishableKey) {
-        // Build the payment form URL with params
         const url = `${PAYMENT_FORM_URL}?clientSecret=${encodeURIComponent(data.clientSecret)}&publishableKey=${encodeURIComponent(data.publishableKey)}`;
         setPaymentUrl(url);
         setShowPaymentModal(true);
@@ -138,6 +148,94 @@ export default function App() {
       Alert.alert('Error', 'Network error. Please check your connection.');
       console.error('Upgrade error:', err);
     }
+  };
+
+  const loadSavedRoutes = async () => {
+    try {
+      const res = await fetch(SAVED_ROUTES_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, action: 'get' }),
+      });
+      const data = await res.json();
+      setSavedRoutes(data.routes || []);
+    } catch {}
+  };
+
+  const loadRideHistory = async () => {
+    try {
+      const res = await fetch(RIDE_HISTORY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, action: 'get' }),
+      });
+      const data = await res.json();
+      setRideHistory(data.history || []);
+    } catch {}
+  };
+
+  const saveCurrentRoute = async () => {
+    if (!deviceId || !promptText.trim()) return;
+    Alert.prompt
+      ? Alert.prompt('Save Route', 'Give this route a name:', (name) => {
+          if (name) doSaveRoute(name);
+        })
+      : Alert.alert('Save Route', 'Enter a name for this route', [
+          { text: 'Cancel' },
+          { text: 'Home', onPress: () => doSaveRoute('Home') },
+          { text: 'Work', onPress: () => doSaveRoute('Work') },
+          { text: 'Other', onPress: () => doSaveRoute('Saved Route') },
+        ]);
+  };
+
+  const doSaveRoute = async (name) => {
+    try {
+      const res = await fetch(SAVED_ROUTES_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, action: 'save', route: { name, prompt: promptText } }),
+      });
+      const data = await res.json();
+      if (data.routes) setSavedRoutes(data.routes);
+      Alert.alert('Saved!', `"${name}" added to your routes.`);
+    } catch {
+      Alert.alert('Error', 'Could not save route.');
+    }
+  };
+
+  const deleteSavedRoute = async (routeId) => {
+    try {
+      const res = await fetch(SAVED_ROUTES_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, action: 'delete', routeId }),
+      });
+      const data = await res.json();
+      if (data.routes) setSavedRoutes(data.routes);
+    } catch {}
+  };
+
+  const saveToHistory = async (resultData) => {
+    if (!deviceId || !resultData?.extractedRoute) return;
+    try {
+      await fetch(RIDE_HISTORY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId,
+          action: 'save',
+          ride: {
+            pickup: resultData.extractedRoute.pickup,
+            dropoff: resultData.extractedRoute.dropoff,
+            cheapestProvider: resultData.cheapest?.provider,
+            cheapestPrice: resultData.cheapest?.price,
+            fastestProvider: resultData.fastest?.provider,
+            fastestPrice: resultData.fastest?.price,
+            prompt: promptText,
+          },
+        }),
+      });
+    } catch {}
   };
 
   const handlePaymentMessage = (event) => {
@@ -244,6 +342,10 @@ export default function App() {
 
       const data = await response.json();
       setResult(data);
+      // Auto-save to history (non-blocking)
+      if (!isBackgroundRefresh && data && !data.isInvalidInput && data.extractedRoute) {
+        saveToHistory(data);
+      }
     } catch (err) {
       console.error(err);
       if (!isBackgroundRefresh) {
@@ -326,6 +428,63 @@ export default function App() {
             }}
             returnKeyType="search"
           />
+
+          {/* Checkbox Filter Matrix */}
+          <Text style={styles.filterTitle}>Select Apps to Compare:</Text>
+
+          {/* Saved Routes Quick-Access */}
+          {savedRoutes.length > 0 && (
+            <View style={styles.savedRoutesRow}>
+              {savedRoutes.map((route) => (
+                <TouchableOpacity
+                  key={route.id}
+                  style={styles.savedRouteChip}
+                  onPress={() => { setPromptText(route.prompt); }}
+                  onLongPress={() => {
+                    Alert.alert('Delete Route', `Remove "${route.name}"?`, [
+                      { text: 'Cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: () => deleteSavedRoute(route.id) },
+                    ]);
+                  }}
+                >
+                  <Text style={styles.savedRouteText}>{route.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Save Route + History buttons */}
+          <View style={styles.quickActionsRow}>
+            {promptText.trim().length > 0 && (
+              <TouchableOpacity style={styles.saveRouteBtn} onPress={saveCurrentRoute}>
+                <Text style={styles.saveRouteBtnText}>💾 Save Route</Text>
+              </TouchableOpacity>
+            )}
+            {rideHistory.length > 0 && (
+              <TouchableOpacity style={styles.historyBtn} onPress={() => setShowHistory(!showHistory)}>
+                <Text style={styles.historyBtnText}>{showHistory ? '✕ Hide' : '📋 History'}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* History Panel */}
+          {showHistory && rideHistory.length > 0 && (
+            <View style={styles.historyPanel}>
+              <Text style={styles.historyTitle}>Recent Searches</Text>
+              {rideHistory.slice(0, 5).map((ride, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.historyItem}
+                  onPress={() => { setPromptText(ride.prompt); setShowHistory(false); }}
+                >
+                  <Text style={styles.historyRoute}>{ride.pickup} → {ride.dropoff}</Text>
+                  <Text style={styles.historyMeta}>
+                    {ride.cheapestProvider} ${ride.cheapestPrice?.toFixed(2)} • {new Date(ride.timestamp).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           {/* Checkbox Filter Matrix */}
           <Text style={styles.filterTitle}>Select Apps to Compare:</Text>
@@ -737,5 +896,74 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     fontWeight: '600',
+  },
+  savedRoutesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  savedRouteChip: {
+    backgroundColor: '#E8F0FE',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  savedRouteText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1A73E8',
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  saveRouteBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+  },
+  saveRouteBtnText: {
+    fontSize: 12,
+    color: '#1A73E8',
+    fontWeight: '600',
+  },
+  historyBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  historyBtnText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+  },
+  historyPanel: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  historyTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
+  },
+  historyItem: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+  },
+  historyRoute: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+  },
+  historyMeta: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 2,
   },
 });
