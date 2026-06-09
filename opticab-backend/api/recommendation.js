@@ -115,6 +115,10 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error("OptiCab backend failure:", error);
-    return res.status(500).json({ error: "Agent engine failed to map parameters." });
+    return res.status(500).json({ 
+      error: "Agent engine failed to map parameters.",
+      details: error.message,
+      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+    });
   }
 }
