@@ -55,19 +55,6 @@ async function getExaTransportAlerts(dropoffName) {
   return { socialResults, mrtResults, eventResults };
 }
 
-// Layer 4: Building-specific drop-off intelligence
-async function getDropoffIntel(dropoffName) {
-  const result = await exa.search(
-    `Best pickup point lobby drop-off advice taxi drivers at ${dropoffName} Singapore`,
-    {
-      type: "keyword",
-      numResults: 1,
-      includeDomains: ["reddit.com", "hardwarezone.com.sg", "tripadvisor.com"],
-      contents: { highlights: true },
-    }
-  ).catch(() => ({ results: [] }));
-  return result;
-}
 
 // —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 // LTA DataMall: Real-time traffic incidents
