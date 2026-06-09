@@ -61,16 +61,27 @@ export default async function handler(req, res) {
         dropoffLocation: parsedContext.dropoff,
         distanceKmOverride: targetDistance,
       }),
-    }).then(r => r.json()).then(data => {
-      // Lambda Function URLs return the body directly as parsed JSON
-      // But if it comes wrapped in { statusCode, body }, unwrap it
-      if (data.body && typeof data.body === 'string') {
-        return JSON.parse(data.body);
+    }).then(async r => {
+      const raw = await r.text();
+      let parsed;
+      try { parsed = JSON.parse(raw); } catch { throw new Error(`Lambda returned non-JSON: ${raw.slice(0, 500)}`); }
+      // Lambda Function URL may wrap response or return directly
+      if (parsed.body && typeof parsed.body === 'string') {
+        return JSON.parse(parsed.body);
       }
-      return data;
+      return parsed;
     });
 
     const [fareMatrix, exaResults] = await Promise.all([lambdaPromise, exaPromise]);
+    
+    // DEBUG: if fareMatrix doesn't have expected shape, return it for inspection
+    if (!fareMatrix || !fareMatrix.grab) {
+      return res.status(500).json({ 
+        error: "Lambda response missing expected keys",
+        lambdaResponse: fareMatrix
+      });
+    }
+
     const weatherHighlights = exaResults.results.flatMap(r => r.highlights);
     const isRaining = weatherHighlights.some(text => /rain|downpour|thunderstorm|flood/i.test(text));
 
