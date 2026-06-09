@@ -146,9 +146,11 @@ async function resolvePostalCode(postalCode) {
   const data = await response.json();
   if (data.results && data.results.length > 0) {
     const result = data.results[0];
+    // OneMap returns "NIL" as a string when no building name exists — treat as empty
+    const building = (result.BUILDING && result.BUILDING !== 'NIL') ? result.BUILDING : '';
     return {
       address: result.ADDRESS,
-      buildingName: result.BUILDING || '',
+      buildingName: building,
       lat: parseFloat(result.LATITUDE),
       lng: parseFloat(result.LONGITUDE),
     };
@@ -160,6 +162,15 @@ async function resolvePostalCode(postalCode) {
 function extractPostalCodes(text) {
   const matches = text.match(/\b\d{6}\b/g);
   return matches || [];
+}
+
+// Sanitize display names — never show "NIL", "null", or empty strings
+function sanitizeDisplayName(name, fallback = 'Unknown location') {
+  if (!name) return fallback;
+  const str = typeof name === 'string' ? name.trim() : String(name).trim();
+  if (!str || /^(nil|null|undefined|unknown)$/i.test(str)) return fallback;
+  // Remove leading "NIL, " or trailing ", NIL" fragments
+  return str.replace(/\bNIL\b,?\s*/gi, '').replace(/,?\s*\bNIL\b/gi, '').trim() || fallback;
 }
 
 // ─────────────────────────────────────────────
@@ -238,26 +249,54 @@ export default async function handler(req, res) {
 
     // Verify dropoff against OneMap for consistent, official address with postal code
     let dropoffDisplay = parsedContext.dropoff;
-    try {
-      const dropoffQuery = typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : parsedContext.dropoff?.address || '';
-      if (dropoffQuery) {
-        const searchRes = await fetch(
-          `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(dropoffQuery)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
-        );
-        const searchData = await searchRes.json();
-        if (searchData.results && searchData.results.length > 0) {
-          const top = searchData.results[0];
-          const building = top.BUILDING && top.BUILDING !== 'NIL' ? `${top.BUILDING}, ` : '';
-          dropoffDisplay = `${building}${top.ADDRESS}`;
+
+    // If the dropoff was a postal code, use the pre-resolved address directly
+    if (postalCodes.length >= 2 && resolvedPostals[postalCodes[1]]) {
+      const resolved = resolvedPostals[postalCodes[1]];
+      dropoffDisplay = resolved.buildingName
+        ? `${resolved.buildingName}, ${resolved.address}`
+        : resolved.address;
+    } else if (postalCodes.length === 1 && !parsedContext.pickup && resolvedPostals[postalCodes[0]]) {
+      // Only one postal code and no explicit pickup = it's the dropoff
+      const resolved = resolvedPostals[postalCodes[0]];
+      dropoffDisplay = resolved.buildingName
+        ? `${resolved.buildingName}, ${resolved.address}`
+        : resolved.address;
+    } else {
+      try {
+        const dropoffQuery = typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : parsedContext.dropoff?.address || '';
+        if (dropoffQuery) {
+          const searchRes = await fetch(
+            `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(dropoffQuery)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
+          );
+          const searchData = await searchRes.json();
+          if (searchData.results && searchData.results.length > 0) {
+            const top = searchData.results[0];
+            const building = top.BUILDING && top.BUILDING !== 'NIL' ? `${top.BUILDING}, ` : '';
+            dropoffDisplay = `${building}${top.ADDRESS}`;
+          }
         }
+      } catch {
+        // Keep Groq's interpretation if OneMap fails
       }
-    } catch {
-      // Keep Groq's interpretation if OneMap fails
     }
 
     // 3. Concurrent data fetch: Fares + LTA Traffic + Exa Weather
     // Also reverse geocode the pickup if it's raw coordinates
     let pickupDisplayName = resolvedPickup;
+
+    // If pickup was resolved from a postal code, use the enriched address directly
+    if (postalCodes.length >= 1 && parsedContext.pickup) {
+      // Check if the first postal code was the pickup (appears before "to" keyword)
+      const firstPostal = postalCodes[0];
+      if (resolvedPostals[firstPostal]) {
+        const resolved = resolvedPostals[firstPostal];
+        pickupDisplayName = resolved.buildingName
+          ? `${resolved.buildingName}, ${resolved.address}`
+          : resolved.address;
+      }
+    }
+
     if (/^\d+\.\d+,\s*\d+\.\d+$/.test(resolvedPickup)) {
       // It's coordinates — reverse geocode via OneMap
       try {
@@ -278,9 +317,17 @@ export default async function handler(req, res) {
         const revGeoData = await revGeoResponse.json();
         if (revGeoData.GeocodeInfo && revGeoData.GeocodeInfo.length > 0) {
           const info = revGeoData.GeocodeInfo[0];
-          pickupDisplayName = info.BUILDINGNAME && info.BUILDINGNAME !== 'NIL'
-            ? `${info.BUILDINGNAME}, ${info.ROAD}`
-            : `${info.BLOCK || ''} ${info.ROAD}`.trim();
+          const building = info.BUILDINGNAME && info.BUILDINGNAME !== 'NIL' ? info.BUILDINGNAME : '';
+          const road = info.ROAD && info.ROAD !== 'NIL' ? info.ROAD : '';
+          const block = info.BLOCK && info.BLOCK !== 'NIL' ? info.BLOCK : '';
+          if (building && road) {
+            pickupDisplayName = `${building}, ${road}`;
+          } else if (block && road) {
+            pickupDisplayName = `${block} ${road}`;
+          } else if (road) {
+            pickupDisplayName = road;
+          }
+          // else keep coordinates as fallback
         }
       } catch {
         // Keep coordinates as fallback if OneMap is unavailable
@@ -350,7 +397,7 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         isInvalidInput: false,
-        extractedRoute: { pickup: pickupDisplayName, dropoff: dropoffDisplay },
+        extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay) },
         cheapest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
         fastest: sortedFastestCar,
         alerts: ["💡 OptiCab Agent Note: Your destination is walkable and weather conditions are clear. Walk to save money!"],
@@ -465,7 +512,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       isInvalidInput: false,
-      extractedRoute: { pickup: pickupDisplayName, dropoff: dropoffDisplay },
+      extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay) },
       cheapest: finalCheapest,
       fastest: finalFastest,
       alerts,

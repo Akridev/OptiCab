@@ -42,6 +42,7 @@ export default function App() {
   const [isAutoPolling, setIsAutoPolling] = useState(false); // 30s background radar
   const [result, setResult] = useState(null);
   const [resolvedCoords, setResolvedCoords] = useState(null); // Live GPS coords for deep links
+  const [pickupIsCurrentLocation, setPickupIsCurrentLocation] = useState(false); // True when GPS was used as pickup
 
   // 2. Track selected apps (Default: all checked)
   const [selectedApps, setSelectedApps] = useState(AVAILABLE_APPS);
@@ -119,6 +120,7 @@ export default function App() {
 
       // Store live coords so deep links can use them as pickup point
       if (coords) setResolvedCoords(coords);
+      setPickupIsCurrentLocation(!userSpecifiedPickup);
 
       const response = await fetch(API_URL, {
         method: 'POST',
@@ -266,7 +268,7 @@ export default function App() {
           {result && !result.isInvalidInput && result.extractedRoute && (
             <View style={{ marginBottom: 100 }}>
               <View style={styles.routeConfirm}>
-                <Text style={styles.confirmText}>📍 From: {getDropoffName(result.extractedRoute.pickup)}</Text>
+                <Text style={styles.confirmText}>{pickupIsCurrentLocation ? '📌 Current: ' : '📍 From: '}{getDropoffName(result.extractedRoute.pickup)}</Text>
                 <Text style={styles.confirmText}>🏁 To: {getDropoffName(result.extractedRoute.dropoff)}</Text>
               </View>
 
