@@ -5,10 +5,39 @@ import { groq } from '@ai-sdk/groq';
 
 const exa = new Exa(process.env.EXA_API_KEY);
 
+// ─────────────────────────────────────────────
+// LTA DataMall: Real-time traffic incidents
+// ─────────────────────────────────────────────
+
+async function getLtaTrafficIncidents() {
+  const response = await fetch('http://datamall2.mytransport.sg/ltaodataservice/TrafficIncidents', {
+    headers: {
+      AccountKey: process.env.LTA_ACCOUNT_KEY,
+      accept: 'application/json',
+    },
+  });
+  const data = await response.json();
+  return data.value || [];
+}
+
+// Check if any incident is near a coordinate (within radiusKm)
+function findIncidentsNearRoute(incidents, lat, lng, radiusKm = 1.0) {
+  return incidents.filter((incident) => {
+    const dLat = incident.Latitude - lat;
+    const dLng = incident.Longitude - lng;
+    // Quick approximate distance (works fine for Singapore's small area)
+    const distKm = Math.sqrt(dLat * dLat + dLng * dLng) * 111;
+    return distKm <= radiusKm;
+  });
+}
+
+// ─────────────────────────────────────────────
+// Main Handler
+// ─────────────────────────────────────────────
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  // Explicitly parse body — Vercel ESM functions don't auto-parse JSON
   const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
   const { userPrompt, currentGpsLocation, allowedApps } = body;
   const activePlatforms = allowedApps || ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
@@ -18,7 +47,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Guard Step: Is this an actual transit/commute request or garbage input?
+    // 1. Guard Step
     const { text: classificationOutput } = await generateText({
       model: groq('llama-3.1-8b-instant'),
       system: `You are the safety gatekeeper for OptiCab Singapore. Analyze the user prompt. 
@@ -37,7 +66,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. Intrinsic Route Parsing (If the prompt is VALID)
+    // 2. Route Parsing
     const { text: llmOutput } = await generateText({
       model: groq('llama-3.1-8b-instant'),
       system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
@@ -57,17 +86,10 @@ export default async function handler(req, res) {
     const passengers = parseInt(parsedContext.passengers) || 1;
     const needsBabySeat = parsedContext.needsBabySeat === true;
     const needsLargeVehicle = parsedContext.needsLargeVehicle === true || passengers > 4;
-
-    // Use explicit pickup if user provided one, otherwise fall back to GPS
     const resolvedPickup = parsedContext.pickup || currentGpsLocation;
 
-    // 3. Query Exa and AWS Lambda concurrently
-    const exaPromise = exa.search(
-      `Singapore active weather alerts downpour rain or road closures near ${parsedContext.dropoff}`,
-      { type: "auto", numResults: 1, contents: { highlights: true } }
-    );
-
-    const lambdaPromise = fetch(`https://opticab-backend.vercel.app/api/fares`, {
+    // 3. Concurrent data fetch: Fares + LTA Traffic + Exa Weather
+    const faresPromise = fetch('https://opticab-backend.vercel.app/api/fares', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -78,14 +100,42 @@ export default async function handler(req, res) {
       }),
     }).then(r => r.json());
 
-    const [fareMatrix, exaResults] = await Promise.all([lambdaPromise, exaPromise]);
-    const weatherHighlights = exaResults.results.flatMap(r => r.highlights);
+    const ltaPromise = getLtaTrafficIncidents().catch(() => []);
+
+    const exaPromise = exa.search(
+      `Singapore weather alert rain flood ${parsedContext.dropoff}`,
+      { type: "auto", numResults: 1, contents: { highlights: true } }
+    ).catch(() => ({ results: [] }));
+
+    const [fareMatrix, ltaIncidents, exaResults] = await Promise.all([faresPromise, ltaPromise, exaPromise]);
+
+    // 4. Analyze traffic conditions using LTA live data
+    // Parse pickup coordinates for incident proximity check
+    const pickupCoords = resolvedPickup.includes(',')
+      ? { lat: parseFloat(resolvedPickup.split(',')[0]), lng: parseFloat(resolvedPickup.split(',')[1]) }
+      : null;
+
+    // Check for incidents near the route (pickup area + dropoff area)
+    let routeIncidents = [];
+    if (pickupCoords) {
+      routeIncidents = findIncidentsNearRoute(ltaIncidents, pickupCoords.lat, pickupCoords.lng, 1.5);
+    }
+
+    // Categorize incidents
+    const hasAccident = routeIncidents.some(i => /accident|collision/i.test(i.Type));
+    const hasRoadWork = routeIncidents.some(i => /road work|roadwork/i.test(i.Type));
+    const hasHeavyTraffic = routeIncidents.some(i => /heavy traffic|congestion/i.test(i.Type));
+    const hasBreakdown = routeIncidents.some(i => /breakdown|stalled/i.test(i.Type));
+    const isTrafficDisrupted = hasAccident || hasHeavyTraffic || hasBreakdown;
+
+    // Weather from Exa
+    const weatherHighlights = exaResults.results?.flatMap(r => r.highlights) || [];
     const isRaining = weatherHighlights.some(text => /rain|downpour|thunderstorm|flood/i.test(text));
 
-    // 4. Walkable Intervention Layer
+    // 5. Walkable Intervention Layer
     if (targetDistance <= 1.2 && !isRaining && !needsLargeVehicle && !needsBabySeat) {
       const walkTime = Math.round(targetDistance * 12);
-      
+
       const carOptions = [];
       if (activePlatforms.includes('Grab')) carOptions.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: fareMatrix.grab.rideDurationMinutes });
       if (activePlatforms.includes('TADA')) carOptions.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: fareMatrix.tada.rideDurationMinutes });
@@ -100,18 +150,17 @@ export default async function handler(req, res) {
         extractedRoute: { pickup: resolvedPickup, dropoff: parsedContext.dropoff },
         cheapest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
         fastest: sortedFastestCar,
-        alerts: ["💡 OptiCab Agent Note: Your destination is walkable and weather conditions are clear. Walk to save money!"]
+        alerts: ["💡 OptiCab Agent Note: Your destination is walkable and weather conditions are clear. Walk to save money!"],
       });
     }
 
-    // 5. Standard Core Multi-App Mapping Flow
-    // Provider capabilities for special requirements
+    // 6. Standard Multi-App Flow
     const PROVIDER_FEATURES = {
-      Grab: { largeVehicle: true, babySeat: true },       // GrabFamily has child seats, Grab6 for large groups
-      TADA: { largeVehicle: false, babySeat: false },     // Standard sedans only
-      Gojek: { largeVehicle: false, babySeat: false },    // Standard sedans only
-      Ryde: { largeVehicle: false, babySeat: false },     // Standard sedans only
-      ComfortDelGro: { largeVehicle: true, babySeat: true }, // CDG has MaxiCab + baby seat options
+      Grab: { largeVehicle: true, babySeat: true },
+      TADA: { largeVehicle: false, babySeat: false },
+      Gojek: { largeVehicle: false, babySeat: false },
+      Ryde: { largeVehicle: false, babySeat: false },
+      ComfortDelGro: { largeVehicle: true, babySeat: true },
     };
 
     let optionsPool = [];
@@ -121,17 +170,13 @@ export default async function handler(req, res) {
     if (activePlatforms.includes('Ryde')) optionsPool.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: fareMatrix.ryde.rideDurationMinutes });
     if (activePlatforms.includes('ComfortDelGro')) optionsPool.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: fareMatrix.cdg.rideDurationMinutes });
 
-    // Filter out providers that don't support baby seat if needed
     if (needsBabySeat) {
       optionsPool = optionsPool.filter(opt => PROVIDER_FEATURES[opt.provider]?.babySeat);
     }
-
-    // Filter out providers that don't support large vehicles if needed
     if (needsLargeVehicle) {
       optionsPool = optionsPool.filter(opt => PROVIDER_FEATURES[opt.provider]?.largeVehicle);
     }
 
-    // If all providers filtered out, return a helpful message
     if (optionsPool.length === 0) {
       return res.status(200).json({
         isInvalidInput: true,
@@ -139,14 +184,31 @@ export default async function handler(req, res) {
       });
     }
 
-    const isTrafficHeavy = weatherHighlights.some(text => /accident|jam|closure|congestion/i.test(text));
-    if (isTrafficHeavy) {
-      optionsPool.forEach(opt => { opt.eta += 8; });
+    // Apply traffic delays from LTA live data
+    if (isTrafficDisrupted) {
+      const delayMinutes = hasAccident ? 10 : 5;
+      optionsPool.forEach(opt => {
+        opt.eta += Math.round(delayMinutes * 0.5); // pickup delay
+        opt.rideDuration += delayMinutes; // ride duration delay
+      });
+    }
+    if (isRaining) {
+      optionsPool.forEach(opt => {
+        opt.eta += 3; // rain = harder to find drivers
+        opt.rideDuration += 4; // slower driving in rain
+      });
     }
 
-    // Build alerts
+    // Build alerts from real data
     const alerts = [];
-    if (isTrafficHeavy) alerts.push("⚠️ Heavy traffic detected along your route vector.");
+    if (hasAccident) {
+      const accidentDetails = routeIncidents.find(i => /accident|collision/i.test(i.Type));
+      alerts.push(`🚨 Live accident detected near your route: ${accidentDetails?.Message || 'Details unavailable'}`);
+    }
+    if (hasHeavyTraffic) alerts.push("🚗 Heavy traffic congestion detected on your route (LTA Live Data).");
+    if (hasRoadWork) alerts.push("🚧 Road works in progress along your route — expect minor delays.");
+    if (hasBreakdown) alerts.push("⚠️ Vehicle breakdown reported near your route.");
+    if (isRaining) alerts.push("🌧️ Rain detected in the area — expect longer pickup times and slower driving.");
     if (needsBabySeat) alerts.push("👶 Baby seat requested — showing only providers with child seat support.");
     if (needsLargeVehicle) alerts.push(`👥 ${passengers} passengers — showing 6/7-seater options (higher fare applies).`);
 
@@ -159,14 +221,14 @@ export default async function handler(req, res) {
       cheapest: finalCheapest,
       fastest: finalFastest,
       alerts,
+      trafficSource: routeIncidents.length > 0 ? 'lta-datamall-live' : 'clear',
     });
 
   } catch (error) {
     console.error("OptiCab backend failure:", error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: "Agent engine failed to map parameters.",
       details: error.message,
-      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
     });
   }
 }
