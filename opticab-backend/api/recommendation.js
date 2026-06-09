@@ -322,13 +322,17 @@ export default async function handler(req, res) {
     const needsLargeVehicle = parsedContext.needsLargeVehicle === true || passengers > 4;
     const childAges = Array.isArray(parsedContext.childAges) ? parsedContext.childAges.filter(a => typeof a === 'number') : [];
 
-    // Fallback: if LLM returned needsBabySeat but empty childAges, try to extract ages from raw input
-    // This catches cases like "baby 9 years old" where LLM ignores the explicit age
+    // Always try to extract explicit ages from raw input as a cross-check
+    // This catches "1 baby 8 years old" where LLM might return [1] instead of [8]
     let effectiveChildAges = childAges;
-    if (needsBabySeat && childAges.length === 0) {
-      const ageMatches = userPrompt.match(/(\d+)\s*(?:year|yr|y\.?o)/gi);
+    if (needsBabySeat) {
+      const ageMatches = userPrompt.match(/(\d+)\s*(?:year|yr|y\.?o|yrs)/gi);
       if (ageMatches) {
-        effectiveChildAges = ageMatches.map(m => parseInt(m.match(/\d+/)[0])).filter(a => a >= 0 && a <= 17);
+        const parsedAges = ageMatches.map(m => parseInt(m.match(/\d+/)[0])).filter(a => a >= 0 && a <= 17);
+        if (parsedAges.length > 0) {
+          // Use regex-extracted ages — they're from explicit user input, more reliable than LLM guesses
+          effectiveChildAges = parsedAges;
+        }
       }
     }
     const resolvedPickup = parsedContext.pickup || currentGpsLocation;
