@@ -11,8 +11,8 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@ai-sdk/groq": "^1.2.9",
-    "ai": "^6.0.198",
+    "@ai-sdk/groq": "^2.0.0",
+    "ai": "^5.0.0",
     "exa-js": "^2.13.0"
   }
 }
