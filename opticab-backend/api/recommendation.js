@@ -1,14 +1,14 @@
-// opticab-backend/api/recommendation.js
+﻿// opticab-backend/api/recommendation.js
 import Exa from 'exa-js';
 import { generateText } from 'ai';
 import { groq } from '@ai-sdk/groq';
 
 const exa = new Exa(process.env.EXA_API_KEY);
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 // Exa: Multi-layer unstructured intelligence
 // Domain-pinpointed, fast mode, 4-hour temporal constraint
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 
 async function getExaTransportAlerts(dropoffName) {
   const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
@@ -69,9 +69,9 @@ async function getDropoffIntel(dropoffName) {
   return result;
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 // LTA DataMall: Real-time traffic incidents
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 
 async function getLtaTrafficIncidents() {
   const response = await fetch('http://datamall2.mytransport.sg/ltaodataservice/TrafficIncidents', {
@@ -84,10 +84,10 @@ async function getLtaTrafficIncidents() {
   return data.value || [];
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 // NEA: Real-time 2-hour weather nowcast (data.gov.sg)
-// No API key needed â€” free public endpoint
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// No API key needed — free public endpoint
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 
 async function getCurrentWeather() {
   const response = await fetch('https://api.data.gov.sg/v1/environment/2-hour-weather-forecast');
@@ -134,9 +134,9 @@ function findIncidentsNearRoute(incidents, lat, lng, radiusKm = 1.0) {
   });
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 // OneMap Postal Code Resolution
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 
 async function resolvePostalCode(postalCode) {
   // OneMap Search API resolves Singapore postal codes to addresses + coordinates
@@ -146,7 +146,7 @@ async function resolvePostalCode(postalCode) {
   const data = await response.json();
   if (data.results && data.results.length > 0) {
     const result = data.results[0];
-    // OneMap returns "NIL" as a string when no building name exists â€” treat as empty
+    // OneMap returns "NIL" as a string when no building name exists — treat as empty
     const building = (result.BUILDING && result.BUILDING !== 'NIL') ? result.BUILDING : '';
     return {
       address: result.ADDRESS,
@@ -164,7 +164,7 @@ function extractPostalCodes(text) {
   return matches || [];
 }
 
-// Sanitize display names â€” never show "NIL", "null", or empty strings
+// Sanitize display names — never show "NIL", "null", or empty strings
 function sanitizeDisplayName(name, fallback = 'Unknown location') {
   if (!name) return fallback;
   const str = typeof name === 'string' ? name.trim() : String(name).trim();
@@ -191,9 +191,9 @@ function safeParseJSON(text) {
   return null;
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 // OneMap Routing: Actual driving distance & duration
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 
 let cachedToken = null;
 let tokenExpiry = 0;
@@ -215,7 +215,7 @@ async function getOneMapToken() {
 }
 
 async function getDrivingDistance(startLat, startLng, endLat, endLng) {
-  // OneMap Routing API â€” returns actual road distance and estimated drive time
+  // OneMap Routing API — returns actual road distance and estimated drive time
   const token = await getOneMapToken();
   const url = `https://www.onemap.gov.sg/api/public/routingsvc/route?start=${startLat},${startLng}&end=${endLat},${endLng}&routeType=drive`;
   const response = await fetch(url, {
@@ -229,12 +229,12 @@ async function getDrivingDistance(startLat, startLng, endLat, endLng) {
       durationMin: Math.round(data.route_summary.total_time / 60),
     };
   }
-  return null; // Routing failed â€” caller should fall back
+  return null; // Routing failed — caller should fall back
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 // Main Handler (Optimized: parallel execution)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// —¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬—¬
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -248,7 +248,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // â•â•â• PHASE 1: Guard LLM + Postal Resolution in PARALLEL â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â PHASE 1: Guard LLM + Postal Resolution in PARALLEL Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
     const postalCodes = extractPostalCodes(userPrompt);
 
     const guardPromise = generateText({
@@ -269,7 +269,7 @@ export default async function handler(req, res) {
 
     const [guardResult, ...postalResults] = await Promise.all([guardPromise, ...postalPromises]);
 
-    // Check guard â€” abort early if invalid
+    // Check guard — abort early if invalid
     if (guardResult.text.trim() === 'INVALID') {
       return res.status(200).json({
         isInvalidInput: true,
@@ -290,7 +290,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // â•â•â• PHASE 2: Route Parsing LLM (needs enriched prompt from Phase 1) â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â PHASE 2: Route Parsing LLM (needs enriched prompt from Phase 1) Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
     const { text: llmOutput } = await generateText({
       model: groq('llama-3.1-8b-instant'),
       system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
@@ -304,7 +304,7 @@ export default async function handler(req, res) {
                - "passengers": number of passengers (default 1 if not mentioned). Count adults + children + babies.
                - "needsBabySeat": true if user mentions baby, infant, toddler, child, kid, or any child aged 7 or below (default false). If all children mentioned are aged 8 or above, set this to false \u2014 they do not need a child seat.
                - "needsLargeVehicle": true if passengers > 4 or user mentions 6-seater, 7-seater, large vehicle, MPV, van (default false)
-               - "childAges": array of integers representing the ages of each child/baby/infant/toddler mentioned. Use context clues: "baby" = 1, "infant" = 0, "toddler" = 2. If user says "4 year old" put [4]. If "1 baby and 1 4 year old" put [1, 4]. If no children mentioned, return empty array []. IMPORTANT: If user says "baby 9 years old" or "kid 8 years old", the AGE overrides the word — put [9] or [8], NOT the default age for "baby". The explicit age always wins.
+               - "childAges": array of integers representing the ages of each child/baby/infant/toddler mentioned. Use context clues: "baby" = 1, "infant" = 0, "toddler" = 2. If user says "4 year old" put [4]. If "1 baby and 1 4 year old" put [1, 4]. If no children mentioned, return empty array []. IMPORTANT: If user says "baby 9 years old" or "kid 8 years old", the AGE overrides the word - put [9] or [8], NOT the default age for "baby". The explicit age always wins.
                Return ONLY a valid raw JSON object. Do not wrap in markdown boxes.`,
       prompt: `Current Location Context (GPS): ${currentGpsLocation}. User Request: "${enrichedPrompt}"`,
     });
@@ -469,7 +469,7 @@ export default async function handler(req, res) {
     // Run A + B in parallel
     await Promise.all([dropoffVerifyPromise, reverseGeocodePromise]);
 
-    // Now compute driving distance (needs both coords â€” dropoff may have just been resolved)
+    // Now compute driving distance (needs both coords — dropoff may have just been resolved)
     let rideDurationFromRouting = null;
     if (pickupLat && pickupLng && dropoffLat && dropoffLng) {
       try {
@@ -481,7 +481,7 @@ export default async function handler(req, res) {
       } catch { /* fall back to LLM estimate */ }
     }
 
-    // â•â•â• PHASE 4: Fares + LTA + Weather + Exa (already parallel) â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â PHASE 4: Fares + LTA + Weather + Exa (already parallel) Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
     const faresPromise = fetch('https://opticab-backend.vercel.app/api/fares', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -498,15 +498,12 @@ export default async function handler(req, res) {
     const exaPromise = getExaTransportAlerts(
       typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
     ).catch(() => ({ socialResults: { results: [] }, mrtResults: { results: [] }, eventResults: { results: [] } }));
-    const dropoffIntelPromise = getDropoffIntel(
-      typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
-    ).catch(() => ({ results: [] }));
 
-    const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers, dropoffIntel] = await Promise.all([
-      faresPromise, ltaPromise, weatherPromise, exaPromise, dropoffIntelPromise
+    const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers] = await Promise.all([
+      faresPromise, ltaPromise, weatherPromise, exaPromise
     ]);
 
-    // â•â•â• PHASE 5: Analysis & Response â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â PHASE 5: Analysis & Response Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
     const pickupCoords = (pickupLat && pickupLng) ? { lat: pickupLat, lng: pickupLng } : null;
     let routeIncidents = [];
     if (pickupCoords) {
@@ -618,7 +615,6 @@ export default async function handler(req, res) {
     const socialHighlights = exaLayers.socialResults?.results?.flatMap(r => r.highlights) || [];
     const mrtHighlights = exaLayers.mrtResults?.results?.flatMap(r => r.highlights) || [];
     const eventHighlights = exaLayers.eventResults?.results?.flatMap(r => r.highlights) || [];
-    const dropoffTips = dropoffIntel?.results?.flatMap(r => r.highlights) || [];
 
     const hasMrtDisruption = mrtHighlights.some(h => /disruption|delay|breakdown|fault/i.test(h));
     const hasEventSurge = eventHighlights.length > 0;
@@ -660,5 +656,6 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Agent engine failed to map parameters.", details: error.message });
   }
 }
+
 
 
