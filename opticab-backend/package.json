@@ -13,6 +13,7 @@
   "dependencies": {
     "@ai-sdk/groq": "^2.0.0",
     "ai": "^5.0.0",
-    "exa-js": "^2.13.0"
+    "exa-js": "^2.13.0",
+    "stripe": "^22.2.0"
   }
 }

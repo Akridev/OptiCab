@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Alert, Keyboard, ScrollView } from 'react-native';
+import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Alert, Keyboard, ScrollView, Platform } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
+import * as Application from 'expo-application';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ─────────────────────────────────────────────
 // CONFIG — swap this to your live Vercel URL once deployed
 // ─────────────────────────────────────────────
 const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
+const STRIPE_CHECKOUT_URL = 'https://opticab-backend.vercel.app/api/stripe-checkout';
+const SUBSCRIPTION_STATUS_URL = 'https://opticab-backend.vercel.app/api/subscription-status';
 
 // 1. Define all supported apps in Singapore
 const AVAILABLE_APPS = ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
@@ -38,11 +42,84 @@ const getDropoffName = (dropoff) => {
 export default function App() {
   const [promptText, setPromptText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isPremium, setIsPremium] = useState(false); // Stripe checkout hook integration point
-  const [isAutoPolling, setIsAutoPolling] = useState(false); // 30s background radar
+  const [isPremium, setIsPremium] = useState(false);
+  const [isAutoPolling, setIsAutoPolling] = useState(false);
   const [result, setResult] = useState(null);
-  const [resolvedCoords, setResolvedCoords] = useState(null); // Live GPS coords for deep links
-  const [pickupIsCurrentLocation, setPickupIsCurrentLocation] = useState(false); // True when GPS was used as pickup
+  const [resolvedCoords, setResolvedCoords] = useState(null);
+  const [pickupIsCurrentLocation, setPickupIsCurrentLocation] = useState(false);
+  const [deviceId, setDeviceId] = useState(null);
+  const [checkingSubscription, setCheckingSubscription] = useState(true);
+
+  // Get or generate a stable device ID
+  useEffect(() => {
+    (async () => {
+      let id = await AsyncStorage.getItem('opticab_device_id');
+      if (!id) {
+        // Use native install ID if available, otherwise generate a UUID
+        if (Platform.OS === 'android') {
+          id = Application.getAndroidId() || `opticab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        } else {
+          id = `opticab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        }
+        await AsyncStorage.setItem('opticab_device_id', id);
+      }
+      setDeviceId(id);
+    })();
+  }, []);
+
+  // Check subscription status on app load and when returning from Stripe
+  useEffect(() => {
+    if (!deviceId) return;
+    checkSubscriptionStatus();
+
+    // Also re-check when app comes back to foreground (after Stripe checkout)
+    const handleUrl = () => checkSubscriptionStatus();
+    const subscription = Linking.addEventListener('url', handleUrl);
+    return () => subscription?.remove();
+  }, [deviceId]);
+
+  const checkSubscriptionStatus = async () => {
+    if (!deviceId) return;
+    try {
+      const response = await fetch(SUBSCRIPTION_STATUS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId }),
+      });
+      const data = await response.json();
+      setIsPremium(data.isPremium === true);
+      if (data.isPremium) {
+        await AsyncStorage.setItem('opticab_premium', 'true');
+      } else {
+        await AsyncStorage.removeItem('opticab_premium');
+      }
+    } catch {
+      // Offline fallback — check local cache
+      const cached = await AsyncStorage.getItem('opticab_premium');
+      setIsPremium(cached === 'true');
+    } finally {
+      setCheckingSubscription(false);
+    }
+  };
+
+  const handleUpgrade = async () => {
+    if (!deviceId) return;
+    try {
+      const response = await fetch(STRIPE_CHECKOUT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId }),
+      });
+      const data = await response.json();
+      if (data.checkoutUrl) {
+        await Linking.openURL(data.checkoutUrl);
+      } else {
+        Alert.alert('Error', 'Could not start checkout. Please try again.');
+      }
+    } catch {
+      Alert.alert('Error', 'Network error. Please check your connection.');
+    }
+  };
 
   // 2. Track selected apps (Default: all checked)
   const [selectedApps, setSelectedApps] = useState(AVAILABLE_APPS);
@@ -355,7 +432,7 @@ export default function App() {
 
         {/* Stripe Paywall Footer */}
         {!isPremium && (
-          <TouchableOpacity style={styles.upgradeBtn} onPress={() => setIsPremium(true)}>
+          <TouchableOpacity style={styles.upgradeBtn} onPress={handleUpgrade}>
             <Text style={styles.upgradeText}>👑 Upgrade to unlock 30s Auto-Polling Radar</Text>
           </TouchableOpacity>
         )}

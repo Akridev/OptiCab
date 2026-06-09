@@ -6,6 +6,15 @@
     },
     "api/fares.js": {
       "maxDuration": 10
+    },
+    "api/stripe-checkout.js": {
+      "maxDuration": 10
+    },
+    "api/stripe-webhook.js": {
+      "maxDuration": 10
+    },
+    "api/subscription-status.js": {
+      "maxDuration": 10
     }
   }
 }
