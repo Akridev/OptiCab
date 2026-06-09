@@ -1,0 +1,19 @@
+# Dependency directories (Never push these!)
+node_modules/
+dist/
+
+# Local configuration and private environment keys
+.env
+.env.local
+.env.production
+
+# Expo local caches and build bundles
+.expo/
+*.jks
+*.p8
+*.apk
+*.ipa
+
+# System files
+.DS_Store
+Thumbs.db

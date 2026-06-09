@@ -1,0 +1,256 @@
+// opticab-lambda/index.js
+// AWS Lambda — Multi-Provider Fare Matrix Engine
+// Simulates real-time pricing across 5 Singapore ride-hailing platforms
+// Invoked by: opticab-backend/api/recommendation.js via AWS_LAMBDA_FARES_ENDPOINT
+
+// ─────────────────────────────────────────────
+// SECTION 1: Singapore Provider Fare Structures
+// Based on publicly available 2024/2025 fare schedules
+// ─────────────────────────────────────────────
+
+const FARE_CONFIG = {
+  grab: {
+    baseFare: 3.00,       // Flag-fall (SGD)
+    perKmRate: 0.55,      // Per km after first km
+    perMinRate: 0.22,     // Per minute of ride time
+    bookingFee: 1.00,     // Platform booking fee
+    minFare: 5.00,        // Minimum chargeable fare
+    baseEta: 4,           // Base ETA in minutes (largest fleet = fastest avg)
+    surgeCapMultiplier: 3.0,
+  },
+  tada: {
+    baseFare: 2.80,       // TADA runs zero-commission, slightly cheaper base
+    perKmRate: 0.50,
+    perMinRate: 0.20,
+    bookingFee: 0.00,     // TADA's key differentiator: no booking fee
+    minFare: 4.50,
+    baseEta: 6,           // Smaller fleet than Grab
+    surgeCapMultiplier: 2.0, // TADA caps surge more aggressively
+  },
+  gojek: {
+    baseFare: 2.90,
+    perKmRate: 0.52,
+    perMinRate: 0.21,
+    bookingFee: 0.80,
+    minFare: 4.80,
+    baseEta: 5,
+    surgeCapMultiplier: 2.5,
+  },
+  ryde: {
+    baseFare: 2.60,       // Budget-positioned, lowest base in market
+    perKmRate: 0.45,
+    perMinRate: 0.19,
+    bookingFee: 0.50,
+    minFare: 4.00,
+    baseEta: 7,           // Smallest fleet, highest ETA variance
+    surgeCapMultiplier: 1.8,
+  },
+  cdg: {
+    baseFare: 3.20,       // ComfortDelGro — premium metered-taxi heritage pricing
+    perKmRate: 0.60,
+    perMinRate: 0.25,
+    bookingFee: 2.30,     // CDG charges a higher booking fee via app
+    minFare: 5.50,
+    baseEta: 5,
+    surgeCapMultiplier: 1.5, // Traditional taxi — regulated, low surge ceiling
+  },
+};
+
+// ─────────────────────────────────────────────
+// SECTION 2: Haversine Distance Calculator
+// Computes great-circle distance between two lat/lng coordinate pairs
+// Returns distance in kilometres
+// ─────────────────────────────────────────────
+
+function haversineDistanceKm(lat1, lng1, lat2, lng2) {
+  const R = 6371; // Earth radius in km
+  const toRad = (deg) => (deg * Math.PI) / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// ─────────────────────────────────────────────
+// SECTION 3: Coordinate Parser
+// Handles both "lat, lng" string format and plain place name strings
+// Returns { lat, lng } or null if unparseable
+// ─────────────────────────────────────────────
+
+function parseCoordinates(locationString) {
+  if (!locationString || typeof locationString !== 'string') return null;
+
+  const parts = locationString.split(',').map((p) => parseFloat(p.trim()));
+  if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+    return { lat: parts[0], lng: parts[1] };
+  }
+  return null; // Place name string — distance will use LLM-derived estimate
+}
+
+// ─────────────────────────────────────────────
+// SECTION 4: Surge Multiplier Engine
+// Models time-of-day surge based on Singapore commute patterns
+// Peak windows: Morning rush (7–9am), Evening rush (5:30–8pm), Late night (11pm–1am)
+// ─────────────────────────────────────────────
+
+function getSurgeMultiplier(providerKey, sgHour) {
+  const config = FARE_CONFIG[providerKey];
+
+  let rawSurge = 1.0;
+
+  // Morning peak
+  if (sgHour >= 7 && sgHour < 9) {
+    rawSurge = 1.6;
+  }
+  // Evening peak — highest demand window
+  else if (sgHour >= 17 && sgHour < 20) {
+    rawSurge = 1.9;
+  }
+  // Late-night premium (post-MRT hours)
+  else if (sgHour >= 23 || sgHour < 1) {
+    rawSurge = 1.4;
+  }
+  // Standard off-peak
+  else {
+    rawSurge = 1.0;
+  }
+
+  // Each provider has a hard cap on how high surge can go
+  return Math.min(rawSurge, config.surgeCapMultiplier);
+}
+
+// ─────────────────────────────────────────────
+// SECTION 5: ETA Variance Model
+// Adds realistic randomness (+/- fleet density noise) to ETAs
+// Prevents all providers returning identical wait times
+// ─────────────────────────────────────────────
+
+function computeEta(providerKey, distanceKm, surgeMultiplier) {
+  const config = FARE_CONFIG[providerKey];
+
+  // Higher surge = more drivers on the road = slightly faster pickup (inverse relationship)
+  const surgeEtaDiscount = surgeMultiplier > 1.3 ? -1 : 0;
+
+  // Ride duration estimate: avg Singapore urban speed ~25 km/h in traffic
+  const rideDurationMinutes = Math.round((distanceKm / 25) * 60);
+
+  // Random fleet density noise: ±2 minutes
+  const fleetNoise = Math.floor(Math.random() * 5) - 2;
+
+  const totalEta = config.baseEta + surgeEtaDiscount + fleetNoise + rideDurationMinutes;
+
+  // Clamp: never return less than 2 minutes or more than 25 minutes ETA
+  return Math.max(2, Math.min(25, totalEta));
+}
+
+// ─────────────────────────────────────────────
+// SECTION 6: Core Fare Calculator
+// Applies full pricing formula for a single provider
+// Returns { estimatedFare, baseEtaMinutes, surgeMultiplier, breakdown }
+// ─────────────────────────────────────────────
+
+function calculateFare(providerKey, distanceKm, sgHour) {
+  const config = FARE_CONFIG[providerKey];
+  const surge = getSurgeMultiplier(providerKey, sgHour);
+
+  // Distance charge: first 1km is covered by base fare, per-km kicks in after
+  const chargeableKm = Math.max(0, distanceKm - 1.0);
+  const distanceCharge = chargeableKm * config.perKmRate;
+
+  // Time charge: estimated ride minutes at 25 km/h urban average
+  const estimatedRideMinutes = Math.max(3, Math.round((distanceKm / 25) * 60));
+  const timeCharge = estimatedRideMinutes * config.perMinRate;
+
+  // Apply surge multiplier (booking fee is excluded from surge — it's fixed)
+  const surgedFare = (config.baseFare + distanceCharge + timeCharge) * surge + config.bookingFee;
+
+  // Enforce minimum fare floor
+  const finalFare = Math.max(config.minFare, surgedFare);
+
+  return {
+    estimatedFare: parseFloat(finalFare.toFixed(2)),
+    baseEtaMinutes: computeEta(providerKey, distanceKm, surge),
+    surgeMultiplier: surge,
+    breakdown: {
+      baseFare: config.baseFare,
+      distanceCharge: parseFloat(distanceCharge.toFixed(2)),
+      timeCharge: parseFloat(timeCharge.toFixed(2)),
+      bookingFee: config.bookingFee,
+      surgeApplied: surge > 1.0,
+    },
+  };
+}
+
+// ─────────────────────────────────────────────
+// SECTION 7: AWS Lambda Entry Point Handler
+// ─────────────────────────────────────────────
+
+export const handler = async (event) => {
+  try {
+    const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+    const { pickupLocation, dropoffLocation, distanceKmOverride } = body;
+
+    // Resolve distance — prefer coordinate math, fall back to LLM-extracted estimate
+    let distanceKm;
+
+    if (distanceKmOverride && typeof distanceKmOverride === 'number') {
+      // Backend already computed distance via LLM extraction — use it directly
+      distanceKm = distanceKmOverride;
+    } else {
+      const pickup = parseCoordinates(pickupLocation);
+      const dropoff = parseCoordinates(dropoffLocation);
+
+      if (pickup && dropoff) {
+        distanceKm = haversineDistanceKm(pickup.lat, pickup.lng, dropoff.lat, dropoff.lng);
+      } else {
+        // Place name strings with no coordinate data — use Singapore average trip distance
+        distanceKm = 8.5;
+      }
+    }
+
+    // Clamp distance to sensible Singapore bounds (max island crossing ~50km)
+    distanceKm = Math.max(0.5, Math.min(50, distanceKm));
+
+    // Get Singapore local hour for surge calculation (UTC+8)
+    const sgHour = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Singapore' })).getHours();
+
+    // Compute fares for all 5 providers
+    const grab = calculateFare('grab', distanceKm, sgHour);
+    const tada = calculateFare('tada', distanceKm, sgHour);
+    const gojek = calculateFare('gojek', distanceKm, sgHour);
+    const ryde = calculateFare('ryde', distanceKm, sgHour);
+    const cdg = calculateFare('cdg', distanceKm, sgHour);
+
+    const responsePayload = {
+      distanceKm: parseFloat(distanceKm.toFixed(2)),
+      sgHour,
+      grab,
+      tada,
+      gojek,
+      ryde,
+      cdg,
+    };
+
+    return {
+      statusCode: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+      body: JSON.stringify(responsePayload),
+    };
+  } catch (error) {
+    console.error('OptiCab Lambda fare engine error:', error);
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Fare matrix computation failed.', details: error.message }),
+    };
+  }
+};

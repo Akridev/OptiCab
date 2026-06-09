@@ -1,0 +1,12 @@
+{
+  "name": "opticab-lambda",
+  "version": "1.0.0",
+  "description": "OptiCab AWS Lambda — Multi-Provider Fare Matrix Engine",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --input-type=module < test.js"
+  },
+  "author": "",
+  "license": "ISC"
+}
