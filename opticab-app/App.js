@@ -26,9 +26,13 @@ const getTimeString = (minutesFromNow) => {
 
 // Helper: extract display name from dropoff (handles both string and object from backend)
 const getDropoffName = (dropoff) => {
-  if (!dropoff) return '';
-  if (typeof dropoff === 'string') return dropoff;
-  return dropoff.address || dropoff.name || JSON.stringify(dropoff);
+  if (!dropoff) return 'Unknown location';
+  if (typeof dropoff === 'string') {
+    const cleaned = dropoff.trim();
+    if (!cleaned || cleaned === 'null' || cleaned === 'NIL') return 'Unknown location';
+    return cleaned;
+  }
+  return dropoff.address || dropoff.name || 'Unknown location';
 };
 
 export default function App() {
