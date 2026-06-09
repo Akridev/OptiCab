@@ -275,43 +275,65 @@ export default function App() {
                 </View>
               )}
 
-              <View style={styles.grid}>
-                {/* Cheapest card */}
-                <TouchableOpacity
-                  style={styles.card}
-                  onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}
-                >
-                  <Text style={styles.cardHeader}>💰 CHEAPEST</Text>
-                  <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
-                  <Text style={styles.provider}>{result.cheapest.provider}</Text>
-                  {result.cheapest.eta != null && (
-                    <Text style={styles.timing}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
-                  )}
-                  {result.cheapest.rideDuration != null && (
-                    <Text style={styles.timing}>📍 Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
-                  )}
-                  <Text style={styles.tapToOpen}>
-                    {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps →' : 'Tap to open app →'}
-                  </Text>
-                </TouchableOpacity>
+              {result.cheapest.provider === result.fastest.provider ? (
+                /* Combined card — same provider is both cheapest and fastest */
+                <View style={styles.gridSingle}>
+                  <TouchableOpacity
+                    style={styles.cardFull}
+                    onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}
+                  >
+                    <Text style={styles.cardHeader}>💰⚡ CHEAPEST & FASTEST</Text>
+                    <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
+                    <Text style={styles.provider}>{result.cheapest.provider}</Text>
+                    {result.cheapest.eta != null && (
+                      <Text style={styles.timing}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
+                    )}
+                    {result.cheapest.rideDuration != null && (
+                      <Text style={styles.timing}>📍 Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
+                    )}
+                    <Text style={styles.tapToOpen}>
+                      {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps →' : 'Tap to open app →'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                /* Two separate cards */
+                <View style={styles.grid}>
+                  <TouchableOpacity
+                    style={styles.card}
+                    onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}
+                  >
+                    <Text style={styles.cardHeader}>💰 CHEAPEST</Text>
+                    <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
+                    <Text style={styles.provider}>{result.cheapest.provider}</Text>
+                    {result.cheapest.eta != null && (
+                      <Text style={styles.timing}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
+                    )}
+                    {result.cheapest.rideDuration != null && (
+                      <Text style={styles.timing}>📍 Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
+                    )}
+                    <Text style={styles.tapToOpen}>
+                      {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps →' : 'Tap to open app →'}
+                    </Text>
+                  </TouchableOpacity>
 
-                {/* Fastest card */}
-                <TouchableOpacity
-                  style={styles.card}
-                  onPress={() => launchDeepLink(result.fastest.provider, getDropoffName(result.extractedRoute.dropoff))}
-                >
-                  <Text style={styles.cardHeader}>⚡ FASTEST</Text>
-                  <Text style={styles.price}>${result.fastest.price.toFixed(2)}</Text>
-                  <Text style={styles.provider}>{result.fastest.provider}</Text>
-                  {result.fastest.eta != null && (
-                    <Text style={styles.timing}>🚗 Pickup: {result.fastest.eta} min ({getTimeString(result.fastest.eta)})</Text>
-                  )}
-                  {result.fastest.rideDuration != null && (
-                    <Text style={styles.timing}>📍 Dropoff: {result.fastest.rideDuration} min ({getTimeString(result.fastest.eta + result.fastest.rideDuration)})</Text>
-                  )}
-                  <Text style={styles.tapToOpen}>Tap to open app →</Text>
-                </TouchableOpacity>
-              </View>
+                  <TouchableOpacity
+                    style={styles.card}
+                    onPress={() => launchDeepLink(result.fastest.provider, getDropoffName(result.extractedRoute.dropoff))}
+                  >
+                    <Text style={styles.cardHeader}>⚡ FASTEST</Text>
+                    <Text style={styles.price}>${result.fastest.price.toFixed(2)}</Text>
+                    <Text style={styles.provider}>{result.fastest.provider}</Text>
+                    {result.fastest.eta != null && (
+                      <Text style={styles.timing}>🚗 Pickup: {result.fastest.eta} min ({getTimeString(result.fastest.eta)})</Text>
+                    )}
+                    {result.fastest.rideDuration != null && (
+                      <Text style={styles.timing}>📍 Dropoff: {result.fastest.rideDuration} min ({getTimeString(result.fastest.eta + result.fastest.rideDuration)})</Text>
+                    )}
+                    <Text style={styles.tapToOpen}>Tap to open app →</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           )}
         </ScrollView>
@@ -474,9 +496,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  gridSingle: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
   card: {
     backgroundColor: '#FFF',
     width: '48%',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#EAEAEA',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardFull: {
+    backgroundColor: '#FFF',
+    width: '100%',
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
