@@ -59,9 +59,16 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         pickupLocation: currentGpsLocation,
         dropoffLocation: parsedContext.dropoff,
-        distanceKmOverride: targetDistance, // Pass LLM-extracted distance — avoids re-deriving from strings
+        distanceKmOverride: targetDistance,
       }),
-    }).then(res => res.json());
+    }).then(r => r.json()).then(data => {
+      // Lambda Function URLs return the body directly as parsed JSON
+      // But if it comes wrapped in { statusCode, body }, unwrap it
+      if (data.body && typeof data.body === 'string') {
+        return JSON.parse(data.body);
+      }
+      return data;
+    });
 
     const [fareMatrix, exaResults] = await Promise.all([lambdaPromise, exaPromise]);
     const weatherHighlights = exaResults.results.flatMap(r => r.highlights);
