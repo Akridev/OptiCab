@@ -1,15 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Alert, Keyboard, ScrollView, Platform } from 'react-native';
+import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Alert, Keyboard, ScrollView, Platform, Modal } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WebView } from 'react-native-webview';
 
 // ─────────────────────────────────────────────
 // CONFIG — swap this to your live Vercel URL once deployed
 // ─────────────────────────────────────────────
 const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
-const STRIPE_CHECKOUT_URL = 'https://opticab-backend.vercel.app/api/stripe-checkout';
+const CREATE_PAYMENT_URL = 'https://opticab-backend.vercel.app/api/create-payment';
+const PAYMENT_FORM_URL = 'https://opticab-backend.vercel.app/api/payment-form';
 const SUBSCRIPTION_STATUS_URL = 'https://opticab-backend.vercel.app/api/subscription-status';
 
 // 1. Define all supported apps in Singapore
@@ -49,6 +51,8 @@ export default function App() {
   const [pickupIsCurrentLocation, setPickupIsCurrentLocation] = useState(false);
   const [deviceId, setDeviceId] = useState(null);
   const [checkingSubscription, setCheckingSubscription] = useState(true);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentUrl, setPaymentUrl] = useState(null);
 
   // Get or generate a stable device ID
   useEffect(() => {
@@ -115,21 +119,39 @@ export default function App() {
       return;
     }
     try {
-      const response = await fetch(STRIPE_CHECKOUT_URL, {
+      // Create a payment intent on the backend
+      const response = await fetch(CREATE_PAYMENT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceId }),
       });
       const data = await response.json();
-      if (data.checkoutUrl) {
-        await Linking.openURL(data.checkoutUrl);
+      if (data.clientSecret && data.publishableKey) {
+        // Build the payment form URL with params
+        const url = `${PAYMENT_FORM_URL}?clientSecret=${encodeURIComponent(data.clientSecret)}&publishableKey=${encodeURIComponent(data.publishableKey)}`;
+        setPaymentUrl(url);
+        setShowPaymentModal(true);
       } else {
-        Alert.alert('Error', data.details || data.error || 'Could not start checkout. Please try again.');
+        Alert.alert('Error', data.details || data.error || 'Could not start payment. Please try again.');
       }
     } catch (err) {
       Alert.alert('Error', 'Network error. Please check your connection.');
       console.error('Upgrade error:', err);
     }
+  };
+
+  const handlePaymentMessage = (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.status === 'success') {
+        setShowPaymentModal(false);
+        setIsPremium(true);
+        AsyncStorage.setItem('opticab_premium', 'true');
+        Alert.alert('🎉 Welcome to Premium!', 'The 30s Auto-Polling Radar is now unlocked.');
+        // Verify with backend
+        checkSubscriptionStatus();
+      }
+    } catch {}
   };
 
   // 2. Track selected apps (Default: all checked)
@@ -447,6 +469,29 @@ export default function App() {
             <Text style={styles.upgradeText}>👑 Upgrade to unlock 30s Auto-Polling Radar</Text>
           </TouchableOpacity>
         )}
+
+        {/* Payment Modal */}
+        <Modal
+          visible={showPaymentModal}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowPaymentModal(false)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#FAFAFA' }}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
+                <Text style={styles.modalClose}>✕ Close</Text>
+              </TouchableOpacity>
+            </View>
+            {paymentUrl && (
+              <WebView
+                source={{ uri: paymentUrl }}
+                onMessage={handlePaymentMessage}
+                style={{ flex: 1 }}
+              />
+            )}
+          </SafeAreaView>
+        </Modal>
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -679,5 +724,18 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontWeight: '700',
     fontSize: 14,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E5',
+  },
+  modalClose: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
   },
 });
