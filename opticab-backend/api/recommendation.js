@@ -173,6 +173,24 @@ function sanitizeDisplayName(name, fallback = 'Unknown location') {
   return str.replace(/\bNIL\b,?\s*/gi, '').replace(/,?\s*\bNIL\b/gi, '').trim() || fallback;
 }
 
+// Robust JSON parsing — handles markdown code fences, trailing commas, and partial LLM output
+function safeParseJSON(text) {
+  if (!text) return null;
+  // Strip markdown code fences: ```json ... ``` or ``` ... ```
+  let cleaned = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+  // Try direct parse first
+  try { return JSON.parse(cleaned); } catch {}
+  // Try extracting JSON object from surrounding text
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (match) {
+    try { return JSON.parse(match[0]); } catch {}
+    // Try fixing trailing commas
+    const fixed = match[0].replace(/,\s*([}\]])/g, '$1');
+    try { return JSON.parse(fixed); } catch {}
+  }
+  return null;
+}
+
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // OneMap Routing: Actual driving distance & duration
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -291,7 +309,13 @@ export default async function handler(req, res) {
       prompt: `Current Location Context (GPS): ${currentGpsLocation}. User Request: "${enrichedPrompt}"`,
     });
 
-    const parsedContext = JSON.parse(llmOutput.trim());
+    const parsedContext = safeParseJSON(llmOutput.trim());
+    if (!parsedContext) {
+      return res.status(200).json({
+        isInvalidInput: true,
+        message: "\uD83E\uDD16 OptiCab couldn't understand the route. Please try rephrasing (e.g., \"From Bukit Batok to Orchard\")."
+      });
+    }
     let targetDistance = parseFloat(parsedContext.distanceKm);
     const passengers = parseInt(parsedContext.passengers) || 1;
     const needsBabySeat = parsedContext.needsBabySeat === true;
