@@ -11,6 +11,13 @@ const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
 // 1. Define all supported apps in Singapore
 const AVAILABLE_APPS = ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
 
+// Helper: extract display name from dropoff (handles both string and object from backend)
+const getDropoffName = (dropoff) => {
+  if (!dropoff) return '';
+  if (typeof dropoff === 'string') return dropoff;
+  return dropoff.address || dropoff.name || JSON.stringify(dropoff);
+};
+
 export default function App() {
   const [promptText, setPromptText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -198,7 +205,7 @@ export default function App() {
           {result && !result.isInvalidInput && (
             <View style={{ marginBottom: 100 }}>
               <View style={styles.routeConfirm}>
-                <Text style={styles.confirmText}>🗺️ Destination Locked: {result.extractedRoute.dropoff}</Text>
+                <Text style={styles.confirmText}>🗺️ Destination Locked: {getDropoffName(result.extractedRoute.dropoff)}</Text>
               </View>
 
               {result.alerts?.length > 0 && (
@@ -214,7 +221,7 @@ export default function App() {
                 {/* Cheapest card — walk option is tappable (opens Maps), car opens ride app */}
                 <TouchableOpacity
                   style={styles.card}
-                  onPress={() => launchDeepLink(result.cheapest.provider, result.extractedRoute.dropoff)}
+                  onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}
                 >
                   <Text style={styles.cardHeader}>💰 CHEAPEST</Text>
                   <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
@@ -230,7 +237,7 @@ export default function App() {
                 {/* Fastest card */}
                 <TouchableOpacity
                   style={styles.card}
-                  onPress={() => launchDeepLink(result.fastest.provider, result.extractedRoute.dropoff)}
+                  onPress={() => launchDeepLink(result.fastest.provider, getDropoffName(result.extractedRoute.dropoff))}
                 >
                   <Text style={styles.cardHeader}>⚡ FASTEST</Text>
                   <Text style={styles.price}>${result.fastest.price.toFixed(2)}</Text>
