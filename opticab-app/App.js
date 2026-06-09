@@ -59,25 +59,57 @@ export default function App() {
     if (!isBackgroundRefresh) setLoading(true);
 
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      let locationContext = '1.3048, 103.8318'; // Fallback: Geylang lat/lng
-      let coords = { lat: 1.3048, lng: 103.8318 };
+      // Check if user specified a "from" location — if so, we don't need GPS
+      const userSpecifiedPickup = /\bfrom\b/i.test(promptText);
 
-      if (status === 'granted') {
+      let locationContext = null;
+      let coords = null;
+
+      if (!userSpecifiedPickup) {
+        // Show informational alert before requesting permission
+        const proceed = await new Promise((resolve) => {
+          Alert.alert(
+            'Location Permission Needed',
+            'OptiCab needs your current location to detect your pickup point. Without it, we cannot search for fares.\n\nPlease allow location access when prompted.',
+            [
+              { text: 'Cancel', onPress: () => resolve(false), style: 'cancel' },
+              { text: 'OK, Continue', onPress: () => resolve(true) },
+            ]
+          );
+        });
+
+        if (!proceed) {
+          setLoading(false);
+          return;
+        }
+
+        let { status } = await Location.requestForegroundPermissionsAsync();
+
+        if (status !== 'granted') {
+          // Permission denied — prompt again
+          Alert.alert(
+            'Location Required',
+            'OptiCab cannot detect your pickup location without GPS permission. Please specify a "from" location in your message (e.g., "from Bukit Batok to Orchard") or enable location access in your device settings.',
+            [{ text: 'OK' }]
+          );
+          setLoading(false);
+          return;
+        }
+
         let loc = await Location.getCurrentPositionAsync({});
         coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
         locationContext = `${coords.lat}, ${coords.lng}`;
       }
 
       // Store live coords so deep links can use them as pickup point
-      setResolvedCoords(coords);
+      if (coords) setResolvedCoords(coords);
 
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userPrompt: promptText,
-          currentGpsLocation: locationContext,
+          currentGpsLocation: locationContext, // null if user specified pickup in text
           allowedApps: selectedApps,
         }),
       });

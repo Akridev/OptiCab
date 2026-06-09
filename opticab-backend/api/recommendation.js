@@ -134,6 +134,27 @@ export default async function handler(req, res) {
     const resolvedPickup = parsedContext.pickup || currentGpsLocation;
 
     // 3. Concurrent data fetch: Fares + LTA Traffic + Exa Weather
+    // Also reverse geocode the pickup if it's raw coordinates
+    let pickupDisplayName = resolvedPickup;
+    if (/^\d+\.\d+,\s*\d+\.\d+$/.test(resolvedPickup)) {
+      // It's coordinates — reverse geocode via OneMap
+      try {
+        const [lat, lng] = resolvedPickup.split(',').map(s => s.trim());
+        const revGeoResponse = await fetch(
+          `https://www.onemap.gov.sg/api/public/revgeocode?location=${lat},${lng}&buffer=50&addressType=All`
+        );
+        const revGeoData = await revGeoResponse.json();
+        if (revGeoData.GeocodeInfo && revGeoData.GeocodeInfo.length > 0) {
+          const info = revGeoData.GeocodeInfo[0];
+          pickupDisplayName = info.BUILDINGNAME && info.BUILDINGNAME !== 'NIL'
+            ? `${info.BUILDINGNAME}, ${info.ROAD}`
+            : `${info.BLOCK || ''} ${info.ROAD}`.trim();
+        }
+      } catch {
+        // Keep coordinates as fallback
+      }
+    }
+
     const faresPromise = fetch('https://opticab-backend.vercel.app/api/fares', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -192,7 +213,7 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         isInvalidInput: false,
-        extractedRoute: { pickup: resolvedPickup, dropoff: parsedContext.dropoff },
+        extractedRoute: { pickup: pickupDisplayName, dropoff: parsedContext.dropoff },
         cheapest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
         fastest: sortedFastestCar,
         alerts: ["💡 OptiCab Agent Note: Your destination is walkable and weather conditions are clear. Walk to save money!"],
@@ -262,7 +283,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       isInvalidInput: false,
-      extractedRoute: { pickup: resolvedPickup, dropoff: parsedContext.dropoff },
+      extractedRoute: { pickup: pickupDisplayName, dropoff: parsedContext.dropoff },
       cheapest: finalCheapest,
       fastest: finalFastest,
       alerts,
