@@ -32,6 +32,34 @@ function findIncidentsNearRoute(incidents, lat, lng, radiusKm = 1.0) {
 }
 
 // ─────────────────────────────────────────────
+// OneMap Postal Code Resolution
+// ─────────────────────────────────────────────
+
+async function resolvePostalCode(postalCode) {
+  // OneMap Search API resolves Singapore postal codes to addresses + coordinates
+  const response = await fetch(
+    `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${postalCode}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
+  );
+  const data = await response.json();
+  if (data.results && data.results.length > 0) {
+    const result = data.results[0];
+    return {
+      address: result.ADDRESS,
+      buildingName: result.BUILDING || '',
+      lat: parseFloat(result.LATITUDE),
+      lng: parseFloat(result.LONGITUDE),
+    };
+  }
+  return null;
+}
+
+// Extract 6-digit postal codes from text
+function extractPostalCodes(text) {
+  const matches = text.match(/\b\d{6}\b/g);
+  return matches || [];
+}
+
+// ─────────────────────────────────────────────
 // Main Handler
 // ─────────────────────────────────────────────
 
@@ -66,7 +94,24 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. Route Parsing
+    // 2. Resolve postal codes via OneMap before LLM parsing
+    let enrichedPrompt = userPrompt;
+    const postalCodes = extractPostalCodes(userPrompt);
+    const resolvedPostals = {};
+
+    for (const code of postalCodes) {
+      const resolved = await resolvePostalCode(code);
+      if (resolved) {
+        resolvedPostals[code] = resolved;
+        // Replace postal code with actual address in the prompt for Groq
+        const label = resolved.buildingName
+          ? `${resolved.buildingName}, ${resolved.address}`
+          : resolved.address;
+        enrichedPrompt = enrichedPrompt.replace(code, label);
+      }
+    }
+
+    // 3. Route Parsing (uses enriched prompt with resolved addresses)
     const { text: llmOutput } = await generateText({
       model: groq('llama-3.1-8b-instant'),
       system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
@@ -78,7 +123,7 @@ export default async function handler(req, res) {
                - "needsBabySeat": true if user mentions baby, infant, toddler, child seat, or car seat (default false)
                - "needsLargeVehicle": true if passengers > 4 or user mentions 6-seater, 7-seater, large vehicle, MPV, van (default false)
                Return ONLY a valid raw JSON object. Do not wrap in markdown boxes.`,
-      prompt: `Current Location Context (GPS): ${currentGpsLocation}. User Request: "${userPrompt}"`,
+      prompt: `Current Location Context (GPS): ${currentGpsLocation}. User Request: "${enrichedPrompt}"`,
     });
 
     const parsedContext = JSON.parse(llmOutput.trim());
