@@ -542,7 +542,7 @@ export default function App() {
           {result && !result.isInvalidInput && result.extractedRoute && (
             <View style={{ marginBottom: 100 }}>
               <View style={styles.routeConfirm}>
-                <Text style={styles.confirmText}>{pickupIsCurrentLocation ? '📌 Current: ' : '📍 From: '}{getDropoffName(result.extractedRoute.pickup)}</Text>
+                <Text style={styles.confirmText}>{result.extractedRoute.pickupIsCurrentLocation ? '📌 Current: ' : '📍 From: '}{getDropoffName(result.extractedRoute.pickup)}</Text>
                 <Text style={styles.confirmText}>🏁 To: {getDropoffName(result.extractedRoute.dropoff)}</Text>
               </View>
 

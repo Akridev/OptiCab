@@ -404,6 +404,20 @@ export default async function handler(req, res) {
       const r = resolvedPostals[postalCodes[0]];
       dropoffLat = r.lat; dropoffLng = r.lng;
       dropoffDisplay = r.buildingName ? `${r.buildingName}, ${r.address}` : r.address;
+
+      // Check if this postal code IS the user's current location
+      if (currentGpsLocation) {
+        const [gpsLat, gpsLng] = currentGpsLocation.split(',').map(s => parseFloat(s.trim()));
+        if (!isNaN(gpsLat) && !isNaN(gpsLng)) {
+          const distM = Math.sqrt(Math.pow((r.lat - gpsLat) * 111000, 2) + Math.pow((r.lng - gpsLng) * 111000 * Math.cos(gpsLat * Math.PI / 180), 2));
+          if (distM < 200) {
+            return res.status(200).json({
+              isInvalidInput: true,
+              message: "\uD83D\uDCCD That's your current location! Please enter a destination you want to travel TO (e.g., \"Take me to Orchard Road\")."
+            });
+          }
+        }
+      }
     }
 
     // If pickup is GPS coordinates, parse them
@@ -508,6 +522,18 @@ export default async function handler(req, res) {
     const dropoffStr = typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : '';
     const isRaining = isRainingNearArea(weatherForecasts, dropoffStr);
 
+    // Detect if pickup is effectively the user's current location
+    // This is true if: GPS was used as pickup, OR if the user typed a postal code that resolves to within 200m of their GPS
+    let pickupIsCurrentLocation = !!currentGpsLocation && resolvedPickup === currentGpsLocation;
+    if (!pickupIsCurrentLocation && currentGpsLocation && pickupLat && pickupLng) {
+      // Check if resolved pickup coords are very close to GPS coords
+      const [gpsLat, gpsLng] = currentGpsLocation.split(',').map(s => parseFloat(s.trim()));
+      if (!isNaN(gpsLat) && !isNaN(gpsLng)) {
+        const distMeters = Math.sqrt(Math.pow((pickupLat - gpsLat) * 111000, 2) + Math.pow((pickupLng - gpsLng) * 111000 * Math.cos(gpsLat * Math.PI / 180), 2));
+        if (distMeters < 200) pickupIsCurrentLocation = true;
+      }
+    }
+
     // Walkable Intervention Layer
     if (targetDistance <= 1.2 && !isRaining && !needsLargeVehicle && !needsBabySeat) {
       const walkTime = Math.round(targetDistance * 12);
@@ -527,7 +553,7 @@ export default async function handler(req, res) {
       if (walkTotalTime <= carTotalTime) {
         return res.status(200).json({
           isInvalidInput: false,
-          extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay) },
+          extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay), pickupIsCurrentLocation },
           cheapest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
           fastest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
           alerts: ["\uD83D\uDCA1 Walking is both cheapest AND fastest for this distance. Save money and stay healthy!"],
@@ -537,7 +563,7 @@ export default async function handler(req, res) {
       // Walking is cheaper but car is faster overall
       return res.status(200).json({
         isInvalidInput: false,
-        extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay) },
+        extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay), pickupIsCurrentLocation },
         cheapest: { provider: 'Walk (Healthy Option)', price: 0.00, eta: 0, rideDuration: walkTime },
         fastest: fastestCar,
         alerts: ["\uD83D\uDCA1 OptiCab Agent Note: Your destination is walkable and weather conditions are clear. Walk to save money!"],
@@ -622,7 +648,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       isInvalidInput: false,
-      extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay) },
+      extractedRoute: { pickup: sanitizeDisplayName(pickupDisplayName), dropoff: sanitizeDisplayName(dropoffDisplay), pickupIsCurrentLocation },
       cheapest: finalCheapest,
       fastest: finalFastest,
       alerts,
@@ -634,4 +660,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Agent engine failed to map parameters.", details: error.message });
   }
 }
+
 
