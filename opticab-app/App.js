@@ -381,7 +381,7 @@ export default function App() {
           {/* Input */}
           <TextInput
             style={styles.input}
-            placeholder="Where to? (e.g., Take me to Orchard Road)"
+            placeholder="Where to? (e.g., Take me to Bishan)"
             placeholderTextColor={COLORS.textMuted}
             value={promptText}
             onChangeText={setPromptText}
