@@ -5,10 +5,10 @@ import { groq } from '@ai-sdk/groq';
 
 const exa = new Exa(process.env.EXA_API_KEY);
 
-// ─────────────────────────────────────────────
+// -
 // Exa: Multi-layer unstructured intelligence
 // Domain-pinpointed, fast mode, 4-hour temporal constraint
-// ─────────────────────────────────────────────
+// -
 
 async function getExaTransportAlerts(dropoffName) {
   const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
@@ -57,9 +57,9 @@ async function getExaTransportAlerts(dropoffName) {
 
 // Layer 4: Building-specific drop-off intelligence
 
-// ─────────────────────────────────────────────
+// -
 // LTA DataMall: Real-time traffic incidents
-// ─────────────────────────────────────────────
+// -
 
 async function getLtaTrafficIncidents() {
   const response = await fetch('http://datamall2.mytransport.sg/ltaodataservice/TrafficIncidents', {
@@ -72,10 +72,10 @@ async function getLtaTrafficIncidents() {
   return data.value || [];
 }
 
-// ─────────────────────────────────────────────
+// -
 // NEA: Real-time 2-hour weather nowcast (data.gov.sg)
-// No API key needed — free public endpoint
-// ─────────────────────────────────────────────
+// No API key needed - free public endpoint
+// -
 
 async function getCurrentWeather() {
   const response = await fetch('https://api.data.gov.sg/v1/environment/2-hour-weather-forecast');
@@ -122,9 +122,9 @@ function findIncidentsNearRoute(incidents, lat, lng, radiusKm = 1.0) {
   });
 }
 
-// ─────────────────────────────────────────────
+// -
 // OneMap Postal Code Resolution
-// ─────────────────────────────────────────────
+// -
 
 async function resolvePostalCode(postalCode) {
   // OneMap Search API resolves Singapore postal codes to addresses + coordinates
@@ -134,7 +134,7 @@ async function resolvePostalCode(postalCode) {
   const data = await response.json();
   if (data.results && data.results.length > 0) {
     const result = data.results[0];
-    // OneMap returns "NIL" as a string when no building name exists — treat as empty
+    // OneMap returns "NIL" as a string when no building name exists - treat as empty
     const building = (result.BUILDING && result.BUILDING !== 'NIL') ? result.BUILDING : '';
     return {
       address: result.ADDRESS,
@@ -152,7 +152,7 @@ function extractPostalCodes(text) {
   return matches || [];
 }
 
-// Sanitize display names — never show "NIL", "null", or empty strings
+// Sanitize display names - never show "NIL", "null", or empty strings
 function sanitizeDisplayName(name, fallback = 'Unknown location') {
   if (!name) return fallback;
   const str = typeof name === 'string' ? name.trim() : String(name).trim();
@@ -161,7 +161,7 @@ function sanitizeDisplayName(name, fallback = 'Unknown location') {
   return str.replace(/\bNIL\b,?\s*/gi, '').replace(/,?\s*\bNIL\b/gi, '').trim() || fallback;
 }
 
-// Robust JSON parsing � handles markdown code fences, trailing commas, and partial LLM output
+// Robust JSON parsing ï¿½ handles markdown code fences, trailing commas, and partial LLM output
 function safeParseJSON(text) {
   if (!text) return null;
   // Strip markdown code fences: ```json ... ``` or ``` ... ```
@@ -179,9 +179,9 @@ function safeParseJSON(text) {
   return null;
 }
 
-// ─────────────────────────────────────────────
+// -
 // OneMap Routing: Actual driving distance & duration
-// ─────────────────────────────────────────────
+// -
 
 let cachedToken = null;
 let tokenExpiry = 0;
@@ -203,7 +203,7 @@ async function getOneMapToken() {
 }
 
 async function getDrivingDistance(startLat, startLng, endLat, endLng) {
-  // OneMap Routing API — returns actual road distance and estimated drive time
+  // OneMap Routing API - returns actual road distance and estimated drive time
   const token = await getOneMapToken();
   const url = `https://www.onemap.gov.sg/api/public/routingsvc/route?start=${startLat},${startLng}&end=${endLat},${endLng}&routeType=drive`;
   const response = await fetch(url, {
@@ -217,12 +217,12 @@ async function getDrivingDistance(startLat, startLng, endLat, endLng) {
       durationMin: Math.round(data.route_summary.total_time / 60),
     };
   }
-  return null; // Routing failed — caller should fall back
+  return null; // Routing failed - caller should fall back
 }
 
-// ─────────────────────────────────────────────
+// -
 // Main Handler (Optimized: parallel execution)
-// ─────────────────────────────────────────────
+// -
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -235,7 +235,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ isInvalidInput: true, message: "Please enter a valid destination!" });
   }
 
-  // ─── Fast Pre-Filter: Catch obvious nonsense before any API/LLM calls ───
+  // - Fast Pre-Filter: Catch obvious nonsense before any API/LLM calls -
   const trimmedPrompt = userPrompt.trim();
 
   // Strip common travel prefixes to isolate the location part
@@ -256,85 +256,48 @@ export default async function handler(req, res) {
   }
 
   try {
-    // ═══ PHASE 1: Guard LLM + Postal Resolution in PARALLEL ═══
+    // === Postal Resolution ===
     const postalCodes = extractPostalCodes(userPrompt);
-
-    const guardPromise = generateText({
-      model: groq('llama-3.1-8b-instant'),
-      system: `You are the safety gatekeeper for OptiCab Singapore. Analyze the user prompt.
-               Determine if the input is a genuine request to travel to a REAL, IDENTIFIABLE location in Singapore.
-               IMPORTANT RULES:
-               - Singapore postal codes (6-digit numbers like 238801, 018956, 540123) ARE valid. Return "VALID".
-               - Real Singapore street names, building names, MRT station names, malls, landmarks, and area names are VALID.
-               - If the destination sounds like it could plausibly be a real place name (even if you are unsure), return "VALID".
-               - Return "INVALID" if:
-                 * The input is completely unrelated to travel (math, recipes, chit-chat, questions)
-                 * The input contains profanity, insults, or abuse
-                 * The destination is clearly fictional, nonsensical, or made-up gibberish (e.g., "donkey place", "unicorn land", "asdfgh", "nowhere", "lalaland")
-                 * The destination is a well-known place OUTSIDE Singapore (e.g., "Tokyo", "New York", "London") with no Singapore context
-               Return EXACTLY one word: "VALID" or "INVALID". Nothing else.`,
-      prompt: `User Prompt: "${userPrompt}"`,
-    });
-
-    // All postal codes resolve in parallel (was sequential for-loop)
-    const postalPromises = postalCodes.map(code =>
-      resolvePostalCode(code).then(resolved => ({ code, resolved }))
+    const postalResults = await Promise.all(
+      postalCodes.map(code => resolvePostalCode(code).then(resolved => ({ code, resolved })))
     );
 
-    const [guardResult, ...postalResults] = await Promise.all([guardPromise, ...postalPromises]);
+    let enrichedPrompt = userPrompt;
+    const resolvedPostals = {};
+    for (const { code, resolved } of postalResults) {
+      if (resolved) {
+        resolvedPostals[code] = resolved;
+        const label = resolved.buildingName ? `${resolved.buildingName}, ${resolved.address}` : resolved.address;
+        enrichedPrompt = enrichedPrompt.replace(code, label);
+      }
+    }
 
-    // Check guard — abort early if invalid
-    if (guardResult.text.trim() === 'INVALID') {
+    // === Combined Guard + Route Parsing (single LLM call) ===
+    const { text: llmOutput } = await generateText({
+      model: groq('llama-3.1-8b-instant'),
+      system: `You are the brain of OptiCab Singapore. Analyze the user prompt and location context.\n\nFIRST: If input is NOT a valid Singapore travel request (nonsense, gibberish, math, recipes, chit-chat, profanity, fictional/overseas places), return ONLY: {"invalid": true}\n\nIf it IS valid, extract:\n- "pickup": set ONLY if user explicitly says "from X" or uses "X to Y" pattern. Otherwise null (GPS used).\n- "dropoff": destination name/address\n- "distanceKm": estimated km\n- "passengers": count (default 1)\n- "needsBabySeat": true if child aged 7 or below. False if all 8+.\n- "needsLargeVehicle": true if >4 passengers or 6/7-seater mentioned\n- "childAges": array of ages. "baby"=1, "infant"=0, "toddler"=2. Explicit age overrides word ("baby 9 years old"=[9]).\n\nSingapore postal codes (6-digit) ARE valid. Return ONLY raw JSON.`,
+      prompt: `GPS: ${currentGpsLocation}. Request: "${enrichedPrompt}"`,
+    });
+
+    let parsedContext = safeParseJSON(llmOutput.trim());
+
+    if (parsedContext && parsedContext.invalid) {
       return res.status(200).json({
         isInvalidInput: true,
         message: "\uD83E\uDD16 OptiCab Assistant: I can only help with travel and transport planning in Singapore. Please enter a destination or a ride request!"
       });
     }
 
-    // Build enriched prompt from resolved postals
-    let enrichedPrompt = userPrompt;
-    const resolvedPostals = {};
-    for (const { code, resolved } of postalResults) {
-      if (resolved) {
-        resolvedPostals[code] = resolved;
-        const label = resolved.buildingName
-          ? `${resolved.buildingName}, ${resolved.address}`
-          : resolved.address;
-        enrichedPrompt = enrichedPrompt.replace(code, label);
-      }
-    }
-
-    // ═══ PHASE 2: Route Parsing LLM (needs enriched prompt from Phase 1) ═══
-    const { text: llmOutput } = await generateText({
-      model: groq('llama-3.1-8b-instant'),
-      system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
-               IMPORTANT: Think beyond what the user literally typed. Consider what they ACTUALLY need to save money and stay safe.
-               For example: a child aged 8+ does NOT need a child seat by Singapore law \u2014 don't flag it. A "kid" without an age should be assumed young (needs a seat). Always optimize for the cheapest safe option.
-               
-               Extract the following information:
-               - "pickup": ONLY set this if the user EXPLICITLY indicates a starting location using words like "from", or uses a "X to Y" pattern where X is clearly a different location from Y. If the user just states a single destination (even with passenger info), set pickup to null. The system will use their GPS location.
-               - "dropoff": the destination name or address (the "to" location, or the only location if just one is given)
-               - "distanceKm": estimated distance in km between pickup and dropoff. If user provides explicit pickup, estimate from that location to dropoff. Otherwise estimate from the GPS coordinates to dropoff.
-               - "passengers": number of passengers (default 1 if not mentioned). Count adults + children + babies.
-               - "needsBabySeat": true if user mentions baby, infant, toddler, child, kid, or any child aged 7 or below (default false). If all children mentioned are aged 8 or above, set this to false \u2014 they do not need a child seat.
-               - "needsLargeVehicle": true if passengers > 4 or user mentions 6-seater, 7-seater, large vehicle, MPV, van (default false)
-               - "childAges": array of integers representing the ages of each child/baby/infant/toddler mentioned. Use context clues: "baby" = 1, "infant" = 0, "toddler" = 2. If user says "4 year old" put [4]. If "1 baby and 1 4 year old" put [1, 4]. If no children mentioned, return empty array []. IMPORTANT: If user says "baby 9 years old" or "kid 8 years old", the AGE overrides the word � put [9] or [8], NOT the default age for "baby". The explicit age always wins.
-               Return ONLY a valid raw JSON object. Do not wrap in markdown boxes.`,
-      prompt: `Current Location Context (GPS): ${currentGpsLocation}. User Request: "${enrichedPrompt}"`,
-    });
-
-    let parsedContext = safeParseJSON(llmOutput.trim());
-    if (!parsedContext) {
-      // Retry once with a simpler prompt
+    if (!parsedContext || !parsedContext.dropoff) {
       try {
         const { text: retryOutput } = await generateText({
           model: groq('llama-3.1-8b-instant'),
-          system: `Return a JSON object with these fields: pickup (string or null), dropoff (string), distanceKm (number), passengers (number), needsBabySeat (boolean), needsLargeVehicle (boolean), childAges (array of numbers). No markdown, no explanation, ONLY raw JSON.`,
-          prompt: `Parse this travel request: "${enrichedPrompt}". GPS: ${currentGpsLocation}`,
+          system: `Return JSON: {pickup, dropoff, distanceKm, passengers, needsBabySeat, needsLargeVehicle, childAges}. If not travel-related: {"invalid":true}. RAW JSON ONLY.`,
+          prompt: `Parse: "${enrichedPrompt}". GPS: ${currentGpsLocation}`,
         });
         parsedContext = safeParseJSON(retryOutput.trim());
-      } catch { }
-      if (!parsedContext) {
+      } catch {}
+      if (!parsedContext || parsedContext.invalid || !parsedContext.dropoff) {
         return res.status(200).json({
           isInvalidInput: true,
           message: "\uD83E\uDD16 OptiCab couldn't understand the route. Please try rephrasing (e.g., \"From Bukit Batok to Orchard\")."
@@ -355,12 +318,12 @@ export default async function handler(req, res) {
       if (ageMatches) {
         const parsedAges = ageMatches.map(m => parseInt(m.match(/\d+/)[0])).filter(a => a >= 0 && a <= 17);
         if (parsedAges.length > 0) {
-          // Use regex-extracted ages � they're from explicit user input, more reliable than LLM guesses
+          // Use regex-extracted ages ï¿½ they're from explicit user input, more reliable than LLM guesses
           effectiveChildAges = parsedAges;
         }
       }
     }
-    // If only 1 postal code exists, it's the dropoff � force pickup to GPS regardless of LLM output
+    // If only 1 postal code exists, it's the dropoff ï¿½ force pickup to GPS regardless of LLM output
     const resolvedPickup = (postalCodes.length === 1 && resolvedPostals[postalCodes[0]])
       ? currentGpsLocation
       : (parsedContext.pickup || currentGpsLocation);
@@ -510,7 +473,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Now compute driving distance (needs both coords — dropoff may have just been resolved)
+    // Now compute driving distance (needs both coords - dropoff may have just been resolved)
     let rideDurationFromRouting = null;
     if (pickupLat && pickupLng && dropoffLat && dropoffLng) {
       try {
@@ -522,7 +485,7 @@ export default async function handler(req, res) {
       } catch { /* fall back to LLM estimate */ }
     }
 
-    // ═══ PHASE 4: Fares + LTA + Weather + Exa (already parallel) ═══
+    // - PHASE 4: Fares + LTA + Weather + Exa (already parallel) -
     const faresPromise = fetch('https://opticab-backend.vercel.app/api/fares', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -544,7 +507,7 @@ export default async function handler(req, res) {
     const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers] = await Promise.all([
       faresPromise, ltaPromise, weatherPromise, exaPromise
     ]);
-    // ═══ PHASE 5: Analysis & Response ═══
+    // - PHASE 5: Analysis & Response -
     const pickupCoords = (pickupLat && pickupLng) ? { lat: pickupLat, lng: pickupLng } : null;
     let routeIncidents = [];
     if (pickupCoords) {
@@ -696,6 +659,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Agent engine failed to map parameters.", details: error.message });
   }
 }
-
-
-
