@@ -2,6 +2,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Keyboard, ScrollView, Platform, Modal, Image, Animated, StatusBar } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Notifications from 'expo-notifications';
+
+// Platform-safe notification handler (notifications don't work on web)
+const scheduleNotification = async (content) => {
+  if (Platform.OS === 'web') return;
+  try {
+    await Notifications.scheduleNotificationAsync({ content, trigger: null });
+  } catch {}
+};
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Application from 'expo-application';
@@ -126,8 +134,9 @@ export default function App() {
   const [lastRouteData, setLastRouteData] = useState(null);
   const lastPriceRef = useRef(null); // Track previous cheapest price for drop detection
 
-  // Setup notifications on mount
+  // Setup notifications on mount (native only)
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     (async () => {
       const { status } = await Notifications.requestPermissionsAsync();
       if (status === 'granted') {
@@ -239,14 +248,11 @@ export default function App() {
         const prevPrice = lastPriceRef.current;
         if (prevPrice && newCheapest && newCheapest < prevPrice) {
           const savings = (prevPrice - newCheapest).toFixed(2);
-          Notifications.scheduleNotificationAsync({
-            content: {
+          scheduleNotification({
               title: '💰 Price Dropped!',
               body: `${data.cheapest.provider} now $${newCheapest.toFixed(2)} (was $${prevPrice.toFixed(2)}) — save $${savings}`,
               sound: true,
-            },
-            trigger: null, // fire immediately
-          });
+            });
         }
         lastPriceRef.current = newCheapest;
         setResult(data);
