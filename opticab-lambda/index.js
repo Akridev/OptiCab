@@ -178,20 +178,10 @@ function calculateFare(providerKey, distanceKm, sgHour) {
     surgeMultiplier: surge,
     breakdown: {
       baseFare: config.baseFare,
-      perKmRate: config.perKmRate,
-      perMinRate: config.perMinRate,
-      distanceKm: parseFloat(distanceKm.toFixed(2)),
-      chargeableKm: parseFloat(chargeableKm.toFixed(2)),
       distanceCharge: parseFloat(distanceCharge.toFixed(2)),
-      estimatedRideMinutes,
       timeCharge: parseFloat(timeCharge.toFixed(2)),
       bookingFee: config.bookingFee,
-      surgeMultiplier: surge,
       surgeApplied: surge > 1.0,
-      subtotalBeforeSurge: parseFloat((config.baseFare + distanceCharge + timeCharge).toFixed(2)),
-      subtotalAfterSurge: parseFloat(((config.baseFare + distanceCharge + timeCharge) * surge).toFixed(2)),
-      minFare: config.minFare,
-      minFareApplied: finalFare === config.minFare,
     },
   };
 }
