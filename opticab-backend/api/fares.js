@@ -105,6 +105,49 @@ async function getOneMapRoute(startLat, startLng, endLat, endLng, token) {
 }
 
 // ─────────────────────────────────────────────
+// Taxi Availability: Real-time supply data from LTA
+// Used to adjust surge pricing based on actual supply/demand
+// ─────────────────────────────────────────────
+
+async function getTaxiAvailability() {
+  const response = await fetch('https://api.data.gov.sg/v1/transport/taxi-availability');
+  const data = await response.json();
+  if (data.features && data.features.length > 0) {
+    const feature = data.features[0];
+    return {
+      coordinates: feature.geometry?.coordinates || [], // Array of [lng, lat] pairs
+      totalCount: feature.properties?.taxi_count || 0,
+      timestamp: feature.properties?.timestamp || null,
+    };
+  }
+  return { coordinates: [], totalCount: 0, timestamp: null };
+}
+
+function countTaxisNearby(taxiCoordinates, lat, lng, radiusKm = 2.0) {
+  // taxiCoordinates are [lng, lat] pairs (GeoJSON format)
+  let count = 0;
+  for (const coord of taxiCoordinates) {
+    const taxiLng = coord[0];
+    const taxiLat = coord[1];
+    // Quick approximate distance (good enough for Singapore's small area)
+    const dLat = (taxiLat - lat) * 111; // ~111km per degree latitude
+    const dLng = (taxiLng - lng) * 111 * Math.cos(lat * Math.PI / 180);
+    const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+    if (dist <= radiusKm) count++;
+  }
+  return count;
+}
+
+// Compute a supply factor from nearby taxi count
+// Returns a value between 0.0 (no supply) and 1.5+ (oversupply)
+// Baseline: ~15 taxis within 2km is "normal" supply in Singapore
+function computeSupplyFactor(nearbyTaxis) {
+  const BASELINE = 15;
+  if (nearbyTaxis === 0) return 0.3; // Very low supply
+  return Math.min(2.0, nearbyTaxis / BASELINE);
+}
+
+// ─────────────────────────────────────────────
 // Fare Calculation Logic
 // ─────────────────────────────────────────────
 
@@ -117,7 +160,7 @@ function parseCoordinates(locationString) {
   return null;
 }
 
-function getSurgeMultiplier(providerKey, sgHour) {
+function getSurgeMultiplier(providerKey, sgHour, supplyFactor = 1.0) {
   const config = FARE_CONFIG[providerKey];
   let rawSurge = 1.0;
 
@@ -126,20 +169,41 @@ function getSurgeMultiplier(providerKey, sgHour) {
   else if (sgHour >= 23 || sgHour < 1) rawSurge = 1.4;
   else rawSurge = 1.0;
 
+  // Adjust surge based on real taxi supply data:
+  // High supply (factor > 1.0) = reduce surge (drivers available, less pressure)
+  // Low supply (factor < 1.0) = keep or slightly increase surge
+  if (supplyFactor >= 1.2) {
+    // Oversupply: significantly reduce surge (plenty of drivers around)
+    rawSurge = 1.0 + (rawSurge - 1.0) * 0.4; // Cut surge effect by 60%
+  } else if (supplyFactor >= 0.8) {
+    // Normal supply: moderate reduction
+    rawSurge = 1.0 + (rawSurge - 1.0) * 0.7; // Cut surge effect by 30%
+  }
+  // Low supply (< 0.8): keep raw surge as-is (time-based estimate is appropriate)
+
   return Math.min(rawSurge, config.surgeCapMultiplier);
 }
 
-function computeEta(providerKey, surgeMultiplier) {
+function computeEta(providerKey, surgeMultiplier, supplyFactor = 1.0) {
   const config = FARE_CONFIG[providerKey];
   const surgeEtaDiscount = surgeMultiplier > 1.3 ? -1 : 0;
   const fleetNoise = Math.floor(Math.random() * 3) - 1;
-  const totalEta = config.baseEta + surgeEtaDiscount + fleetNoise;
+
+  // Supply-based ETA adjustment:
+  // High supply = faster pickup, low supply = slower pickup
+  let supplyEtaAdjust = 0;
+  if (supplyFactor >= 1.5) supplyEtaAdjust = -2;      // Lots of drivers nearby
+  else if (supplyFactor >= 1.0) supplyEtaAdjust = -1;  // Healthy supply
+  else if (supplyFactor < 0.5) supplyEtaAdjust = 2;    // Very few drivers
+  else if (supplyFactor < 0.8) supplyEtaAdjust = 1;    // Below average
+
+  const totalEta = config.baseEta + surgeEtaDiscount + fleetNoise + supplyEtaAdjust;
   return Math.max(2, Math.min(10, totalEta));
 }
 
-function calculateFare(providerKey, distanceKm, rideDurationMinutes, sgHour) {
+function calculateFare(providerKey, distanceKm, rideDurationMinutes, sgHour, supplyFactor = 1.0) {
   const config = FARE_CONFIG[providerKey];
-  const surge = getSurgeMultiplier(providerKey, sgHour);
+  const surge = getSurgeMultiplier(providerKey, sgHour, supplyFactor);
   const chargeableKm = Math.max(0, distanceKm - 1.0);
   const distanceCharge = chargeableKm * config.perKmRate;
   const timeCharge = rideDurationMinutes * config.perMinRate;
@@ -148,7 +212,7 @@ function calculateFare(providerKey, distanceKm, rideDurationMinutes, sgHour) {
 
   return {
     estimatedFare: parseFloat(finalFare.toFixed(2)),
-    baseEtaMinutes: computeEta(providerKey, surge),
+    baseEtaMinutes: computeEta(providerKey, surge, supplyFactor),
     rideDurationMinutes,
     surgeMultiplier: surge,
     breakdown: {
@@ -174,13 +238,17 @@ export default async function handler(req, res) {
 
     let distanceKm;
     let rideDurationMinutes;
+    let pickupCoords = null;
+
+    // Fetch taxi availability in parallel with OneMap routing
+    const taxiPromise = getTaxiAvailability().catch(() => ({ coordinates: [], totalCount: 0, timestamp: null }));
 
     // Try OneMap for real road distance
     try {
       const token = await getOneMapToken();
 
       // Resolve coordinates
-      let pickupCoords = parseCoordinates(pickupLocation);
+      pickupCoords = parseCoordinates(pickupLocation);
       let dropoffCoords = parseCoordinates(dropoffLocation);
 
       // Geocode place names if needed
@@ -217,6 +285,16 @@ export default async function handler(req, res) {
 
     const sgHour = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Singapore' })).getHours();
 
+    // Resolve taxi supply data
+    const taxiData = await taxiPromise;
+    let supplyFactor = 1.0; // Default: neutral (no data)
+    let nearbyTaxis = null;
+
+    if (pickupCoords && taxiData.coordinates.length > 0) {
+      nearbyTaxis = countTaxisNearby(taxiData.coordinates, pickupCoords.lat, pickupCoords.lng, 2.0);
+      supplyFactor = computeSupplyFactor(nearbyTaxis);
+    }
+
     // Large vehicle multiplier (6/7-seater MPV pricing is ~1.5x standard sedan)
     const vehicleMultiplier = needsLargeVehicle ? 1.5 : 1.0;
 
@@ -230,11 +308,17 @@ export default async function handler(req, res) {
       rideDurationMinutes,
       sgHour,
       source: distanceKm !== distanceKmOverride ? 'onemap' : 'llm-estimate',
-      grab: applyVehicleMultiplier(calculateFare('grab', distanceKm, rideDurationMinutes, sgHour)),
-      tada: applyVehicleMultiplier(calculateFare('tada', distanceKm, rideDurationMinutes, sgHour)),
-      gojek: applyVehicleMultiplier(calculateFare('gojek', distanceKm, rideDurationMinutes, sgHour)),
-      ryde: applyVehicleMultiplier(calculateFare('ryde', distanceKm, rideDurationMinutes, sgHour)),
-      cdg: applyVehicleMultiplier(calculateFare('cdg', distanceKm, rideDurationMinutes, sgHour)),
+      supplyData: {
+        nearbyTaxis,
+        totalAvailable: taxiData.totalCount,
+        supplyFactor: parseFloat(supplyFactor.toFixed(2)),
+        timestamp: taxiData.timestamp,
+      },
+      grab: applyVehicleMultiplier(calculateFare('grab', distanceKm, rideDurationMinutes, sgHour, supplyFactor)),
+      tada: applyVehicleMultiplier(calculateFare('tada', distanceKm, rideDurationMinutes, sgHour, supplyFactor)),
+      gojek: applyVehicleMultiplier(calculateFare('gojek', distanceKm, rideDurationMinutes, sgHour, supplyFactor)),
+      ryde: applyVehicleMultiplier(calculateFare('ryde', distanceKm, rideDurationMinutes, sgHour, supplyFactor)),
+      cdg: applyVehicleMultiplier(calculateFare('cdg', distanceKm, rideDurationMinutes, sgHour, supplyFactor)),
     };
 
     return res.status(200).json(responsePayload);
