@@ -16,6 +16,13 @@ import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PaymentWebView } from './WebViewWrapper';
 
+// On web, payment opens in new tab instead of WebView
+const openPaymentWeb = (url) => {
+  if (Platform.OS === 'web') {
+    window.open(url, '_blank');
+  }
+};
+
 // ─── Config ───
 const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
 const CREATE_PAYMENT_URL = 'https://opticab-backend.vercel.app/api/create-payment';
@@ -599,8 +606,14 @@ export default function App() {
                       const response = await fetch(CREATE_PAYMENT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
                       const data = await response.json();
                       if (data.clientSecret && data.publishableKey) {
-                        setPaymentUrl(`${PAYMENT_FORM_URL}?clientSecret=${encodeURIComponent(data.clientSecret)}&publishableKey=${encodeURIComponent(data.publishableKey)}`);
-                        setShowPaymentModal(true);
+                        const url = `${PAYMENT_FORM_URL}?clientSecret=${encodeURIComponent(data.clientSecret)}&publishableKey=${encodeURIComponent(data.publishableKey)}`;
+                        if (Platform.OS === 'web') {
+                          window.open(url, '_blank');
+                          showAlert('Payment Opened', 'Complete payment in the new tab. Once done, your premium will activate.');
+                        } else {
+                          setPaymentUrl(url);
+                          setShowPaymentModal(true);
+                        }
                       } else { showAlert('Error', data.details || 'Payment setup failed.'); }
                     } catch (e) { showAlert('Network Error', e.message); }
                   }}
