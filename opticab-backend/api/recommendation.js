@@ -1,14 +1,14 @@
-﻿// opticab-backend/api/recommendation.js
+// opticab-backend/api/recommendation.js
 import Exa from 'exa-js';
 import { generateText } from 'ai';
 import { groq } from '@ai-sdk/groq';
 
 const exa = new Exa(process.env.EXA_API_KEY);
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // Exa: Multi-layer unstructured intelligence
 // Domain-pinpointed, fast mode, 4-hour temporal constraint
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 async function getExaTransportAlerts(dropoffName) {
   const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
@@ -57,9 +57,9 @@ async function getExaTransportAlerts(dropoffName) {
 
 // Layer 4: Building-specific drop-off intelligence
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // LTA DataMall: Real-time traffic incidents
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 async function getLtaTrafficIncidents() {
   const response = await fetch('http://datamall2.mytransport.sg/ltaodataservice/TrafficIncidents', {
@@ -72,10 +72,10 @@ async function getLtaTrafficIncidents() {
   return data.value || [];
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // NEA: Real-time 2-hour weather nowcast (data.gov.sg)
-// No API key needed â€” free public endpoint
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// No API key needed — free public endpoint
+// ─────────────────────────────────────────────
 
 async function getCurrentWeather() {
   const response = await fetch('https://api.data.gov.sg/v1/environment/2-hour-weather-forecast');
@@ -122,9 +122,9 @@ function findIncidentsNearRoute(incidents, lat, lng, radiusKm = 1.0) {
   });
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // OneMap Postal Code Resolution
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 async function resolvePostalCode(postalCode) {
   // OneMap Search API resolves Singapore postal codes to addresses + coordinates
@@ -134,7 +134,7 @@ async function resolvePostalCode(postalCode) {
   const data = await response.json();
   if (data.results && data.results.length > 0) {
     const result = data.results[0];
-    // OneMap returns "NIL" as a string when no building name exists â€” treat as empty
+    // OneMap returns "NIL" as a string when no building name exists — treat as empty
     const building = (result.BUILDING && result.BUILDING !== 'NIL') ? result.BUILDING : '';
     return {
       address: result.ADDRESS,
@@ -152,7 +152,7 @@ function extractPostalCodes(text) {
   return matches || [];
 }
 
-// Sanitize display names â€” never show "NIL", "null", or empty strings
+// Sanitize display names — never show "NIL", "null", or empty strings
 function sanitizeDisplayName(name, fallback = 'Unknown location') {
   if (!name) return fallback;
   const str = typeof name === 'string' ? name.trim() : String(name).trim();
@@ -161,27 +161,27 @@ function sanitizeDisplayName(name, fallback = 'Unknown location') {
   return str.replace(/\bNIL\b,?\s*/gi, '').replace(/,?\s*\bNIL\b/gi, '').trim() || fallback;
 }
 
-// Robust JSON parsing — handles markdown code fences, trailing commas, and partial LLM output
+// Robust JSON parsing � handles markdown code fences, trailing commas, and partial LLM output
 function safeParseJSON(text) {
   if (!text) return null;
   // Strip markdown code fences: ```json ... ``` or ``` ... ```
   let cleaned = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
   // Try direct parse first
-  try { return JSON.parse(cleaned); } catch {}
+  try { return JSON.parse(cleaned); } catch { }
   // Try extracting JSON object from surrounding text
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (match) {
-    try { return JSON.parse(match[0]); } catch {}
+    try { return JSON.parse(match[0]); } catch { }
     // Try fixing trailing commas
     const fixed = match[0].replace(/,\s*([}\]])/g, '$1');
-    try { return JSON.parse(fixed); } catch {}
+    try { return JSON.parse(fixed); } catch { }
   }
   return null;
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // OneMap Routing: Actual driving distance & duration
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 let cachedToken = null;
 let tokenExpiry = 0;
@@ -203,7 +203,7 @@ async function getOneMapToken() {
 }
 
 async function getDrivingDistance(startLat, startLng, endLat, endLng) {
-  // OneMap Routing API â€” returns actual road distance and estimated drive time
+  // OneMap Routing API — returns actual road distance and estimated drive time
   const token = await getOneMapToken();
   const url = `https://www.onemap.gov.sg/api/public/routingsvc/route?start=${startLat},${startLng}&end=${endLat},${endLng}&routeType=drive`;
   const response = await fetch(url, {
@@ -217,12 +217,12 @@ async function getDrivingDistance(startLat, startLng, endLat, endLng) {
       durationMin: Math.round(data.route_summary.total_time / 60),
     };
   }
-  return null; // Routing failed â€” caller should fall back
+  return null; // Routing failed — caller should fall back
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 // Main Handler (Optimized: parallel execution)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -236,7 +236,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // â•â•â• PHASE 1: Guard LLM + Postal Resolution in PARALLEL â•â•â•
+    // ═══ PHASE 1: Guard LLM + Postal Resolution in PARALLEL ═══
     const postalCodes = extractPostalCodes(userPrompt);
 
     const guardPromise = generateText({
@@ -245,7 +245,7 @@ export default async function handler(req, res) {
                Determine if the input is a genuine request to travel somewhere, catch a ride, or navigate to a destination.
                IMPORTANT: Singapore postal codes (6-digit numbers like 238801, 018956, 540123) ARE valid travel destinations. Treat them as VALID.
                Street names, building names, MRT station names, and area names are all VALID travel requests.
-               Only return "INVALID" if the input is completely unrelated to travel (e.g., math questions, cooking recipes, general chit-chat, nonsense).
+               Only return "INVALID" if the input is completely unrelated to travel (e.g., math questions, cooking recipes, general chit-chat, nonsense, vulgarities, etc).
                Return exactly: "VALID" or "INVALID".`,
       prompt: `User Prompt: "${userPrompt}"`,
     });
@@ -257,7 +257,7 @@ export default async function handler(req, res) {
 
     const [guardResult, ...postalResults] = await Promise.all([guardPromise, ...postalPromises]);
 
-    // Check guard â€” abort early if invalid
+    // Check guard — abort early if invalid
     if (guardResult.text.trim() === 'INVALID') {
       return res.status(200).json({
         isInvalidInput: true,
@@ -278,7 +278,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // â•â•â• PHASE 2: Route Parsing LLM (needs enriched prompt from Phase 1) â•â•â•
+    // ═══ PHASE 2: Route Parsing LLM (needs enriched prompt from Phase 1) ═══
     const { text: llmOutput } = await generateText({
       model: groq('llama-3.1-8b-instant'),
       system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
@@ -292,7 +292,7 @@ export default async function handler(req, res) {
                - "passengers": number of passengers (default 1 if not mentioned). Count adults + children + babies.
                - "needsBabySeat": true if user mentions baby, infant, toddler, child, kid, or any child aged 7 or below (default false). If all children mentioned are aged 8 or above, set this to false \u2014 they do not need a child seat.
                - "needsLargeVehicle": true if passengers > 4 or user mentions 6-seater, 7-seater, large vehicle, MPV, van (default false)
-               - "childAges": array of integers representing the ages of each child/baby/infant/toddler mentioned. Use context clues: "baby" = 1, "infant" = 0, "toddler" = 2. If user says "4 year old" put [4]. If "1 baby and 1 4 year old" put [1, 4]. If no children mentioned, return empty array []. IMPORTANT: If user says "baby 9 years old" or "kid 8 years old", the AGE overrides the word — put [9] or [8], NOT the default age for "baby". The explicit age always wins.
+               - "childAges": array of integers representing the ages of each child/baby/infant/toddler mentioned. Use context clues: "baby" = 1, "infant" = 0, "toddler" = 2. If user says "4 year old" put [4]. If "1 baby and 1 4 year old" put [1, 4]. If no children mentioned, return empty array []. IMPORTANT: If user says "baby 9 years old" or "kid 8 years old", the AGE overrides the word � put [9] or [8], NOT the default age for "baby". The explicit age always wins.
                Return ONLY a valid raw JSON object. Do not wrap in markdown boxes.`,
       prompt: `Current Location Context (GPS): ${currentGpsLocation}. User Request: "${enrichedPrompt}"`,
     });
@@ -307,7 +307,7 @@ export default async function handler(req, res) {
           prompt: `Parse this travel request: "${enrichedPrompt}". GPS: ${currentGpsLocation}`,
         });
         parsedContext = safeParseJSON(retryOutput.trim());
-      } catch {}
+      } catch { }
       if (!parsedContext) {
         return res.status(200).json({
           isInvalidInput: true,
@@ -329,12 +329,12 @@ export default async function handler(req, res) {
       if (ageMatches) {
         const parsedAges = ageMatches.map(m => parseInt(m.match(/\d+/)[0])).filter(a => a >= 0 && a <= 17);
         if (parsedAges.length > 0) {
-          // Use regex-extracted ages — they're from explicit user input, more reliable than LLM guesses
+          // Use regex-extracted ages � they're from explicit user input, more reliable than LLM guesses
           effectiveChildAges = parsedAges;
         }
       }
     }
-    // If only 1 postal code exists, it's the dropoff — force pickup to GPS regardless of LLM output
+    // If only 1 postal code exists, it's the dropoff � force pickup to GPS regardless of LLM output
     const resolvedPickup = (postalCodes.length === 1 && resolvedPostals[postalCodes[0]])
       ? currentGpsLocation
       : (parsedContext.pickup || currentGpsLocation);
@@ -415,6 +415,7 @@ export default async function handler(req, res) {
 
     // Task A: Verify dropoff via OneMap (only if not already resolved from postal code)
     const needsDropoffLookup = !dropoffLat;
+    let dropoffVerified = !needsDropoffLookup; // Already verified if resolved from postal code
     const dropoffVerifyPromise = needsDropoffLookup ? (async () => {
       try {
         const q = typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : parsedContext.dropoff?.address || '';
@@ -423,10 +424,28 @@ export default async function handler(req, res) {
           const data = await res.json();
           if (data.results && data.results.length > 0) {
             const top = data.results[0];
-            const bld = top.BUILDING && top.BUILDING !== 'NIL' ? `${top.BUILDING}, ` : '';
-            dropoffDisplay = `${bld}${top.ADDRESS}`;
-            dropoffLat = parseFloat(top.LATITUDE);
-            dropoffLng = parseFloat(top.LONGITUDE);
+            // Validate that the OneMap result actually matches the user's query
+            // Compare query words against the returned address/building name
+            const queryLower = q.toLowerCase().trim();
+            const addrLower = (top.ADDRESS || '').toLowerCase();
+            const bldLower = (top.BUILDING && top.BUILDING !== 'NIL' ? top.BUILDING : '').toLowerCase();
+            const searchValLower = (top.SEARCHVAL || '').toLowerCase();
+
+            // Check if any significant query word (4+ chars) appears in the result
+            const queryWords = queryLower.split(/\s+/).filter(w => w.length >= 4);
+            const resultText = `${addrLower} ${bldLower} ${searchValLower}`;
+            const matchedWords = queryWords.filter(w => resultText.includes(w));
+
+            // Require at least one meaningful word match, or the full query is a substring of the result
+            const hasReasonableMatch = matchedWords.length > 0 || resultText.includes(queryLower) || queryLower.includes(addrLower.split(',')[0]?.trim());
+
+            if (hasReasonableMatch) {
+              const bld = top.BUILDING && top.BUILDING !== 'NIL' ? `${top.BUILDING}, ` : '';
+              dropoffDisplay = `${bld}${top.ADDRESS}`;
+              dropoffLat = parseFloat(top.LATITUDE);
+              dropoffLng = parseFloat(top.LONGITUDE);
+              dropoffVerified = true;
+            }
           }
         }
       } catch { /* keep LLM interpretation */ }
@@ -457,7 +476,15 @@ export default async function handler(req, res) {
     // Run A + B in parallel
     await Promise.all([dropoffVerifyPromise, reverseGeocodePromise]);
 
-    // Now compute driving distance (needs both coords â€” dropoff may have just been resolved)
+    // Validate: if the dropoff couldn't be verified as a real Singapore location, reject
+    if (!dropoffVerified) {
+      return res.status(200).json({
+        isInvalidInput: true,
+        message: "\uD83D\uDCCD I couldn't find that location in Singapore. Please enter a valid Singapore address, building name, postal code, or landmark."
+      });
+    }
+
+    // Now compute driving distance (needs both coords — dropoff may have just been resolved)
     let rideDurationFromRouting = null;
     if (pickupLat && pickupLng && dropoffLat && dropoffLng) {
       try {
@@ -469,7 +496,7 @@ export default async function handler(req, res) {
       } catch { /* fall back to LLM estimate */ }
     }
 
-    // â•â•â• PHASE 4: Fares + LTA + Weather + Exa (already parallel) â•â•â•
+    // ═══ PHASE 4: Fares + LTA + Weather + Exa (already parallel) ═══
     const faresPromise = fetch('https://opticab-backend.vercel.app/api/fares', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -491,7 +518,7 @@ export default async function handler(req, res) {
     const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers] = await Promise.all([
       faresPromise, ltaPromise, weatherPromise, exaPromise
     ]);
-    // â•â•â• PHASE 5: Analysis & Response â•â•â•
+    // ═══ PHASE 5: Analysis & Response ═══
     const pickupCoords = (pickupLat && pickupLng) ? { lat: pickupLat, lng: pickupLng } : null;
     let routeIncidents = [];
     if (pickupCoords) {
