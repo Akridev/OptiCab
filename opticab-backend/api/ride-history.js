@@ -25,12 +25,12 @@ export default async function handler(req, res) {
         KeyConditionExpression: 'deviceId = :did',
         ExpressionAttributeValues: { ':did': deviceId },
         ScanIndexForward: false,
-        Limit: 3,
+        Limit: 2,
       }));
       return res.status(200).json({ history: result.Items || [] });
     }
 
-    // SAVE a search (keep only last 3)
+    // SAVE a search (keep only last 2)
     if (action === 'save') {
       const { ride } = body;
       if (!ride) return res.status(400).json({ error: 'Ride data required' });

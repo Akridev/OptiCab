@@ -455,7 +455,7 @@ export default function App() {
               {rideHistory.length === 0 ? (
                 <Text style={styles.historyMeta}>No searches yet.</Text>
               ) : (
-                rideHistory.slice(0, 3).map((ride, idx) => (
+                rideHistory.slice(0, 2).map((ride, idx) => (
                   <TouchableOpacity
                     key={idx}
                     style={styles.historyItem}
