@@ -56,6 +56,8 @@ export default function App() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentUrl, setPaymentUrl] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
+  const [emailInput, setEmailInput] = useState('');
+  const [showEmailPrompt, setShowEmailPrompt] = useState(false);
   const [savedRoutes, setSavedRoutes] = useState({ home: null, work: null });
   const [rideHistory, setRideHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -138,9 +140,6 @@ export default function App() {
     }
     startPayment(userEmail);
   };
-
-  const [emailInput, setEmailInput] = useState('');
-  const [showEmailPrompt, setShowEmailPrompt] = useState(false);
 
   const promptEmailAndroid = () => {
     setShowEmailPrompt(true);
