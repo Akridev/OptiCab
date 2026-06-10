@@ -55,18 +55,18 @@ export default function App() {
   const [checkingSubscription, setCheckingSubscription] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentUrl, setPaymentUrl] = useState(null);
+  const [userEmail, setUserEmail] = useState(null);
   const [savedRoutes, setSavedRoutes] = useState({ home: null, work: null });
   const [rideHistory, setRideHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const scrollViewRef = useRef(null);
 
-  // Get or generate a stable device ID
+  // Get or generate a stable device ID + load saved email
   useEffect(() => {
     (async () => {
       try {
         let id = await AsyncStorage.getItem('opticab_device_id');
         if (!id) {
-          // Generate a unique ID for this device/install
           if (Platform.OS === 'android' && Application.getAndroidId) {
             id = Application.getAndroidId();
           }
@@ -76,8 +76,11 @@ export default function App() {
           await AsyncStorage.setItem('opticab_device_id', id);
         }
         setDeviceId(id);
+
+        // Load saved email
+        const savedEmail = await AsyncStorage.getItem('opticab_email');
+        if (savedEmail) setUserEmail(savedEmail);
       } catch (err) {
-        // Fallback if AsyncStorage fails
         const fallbackId = `opticab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         setDeviceId(fallbackId);
       }
@@ -86,14 +89,9 @@ export default function App() {
 
   // Check subscription status on app load and when returning from Stripe
   useEffect(() => {
-    if (!deviceId) return;
+    if (!userEmail) return;
     checkSubscriptionStatus();
-
-    // Also re-check when app comes back to foreground (after Stripe checkout)
-    const handleUrl = () => checkSubscriptionStatus();
-    const subscription = Linking.addEventListener('url', handleUrl);
-    return () => subscription?.remove();
-  }, [deviceId]);
+  }, [userEmail]);
 
   // Load saved routes and history when deviceId is ready
   useEffect(() => {
@@ -103,25 +101,19 @@ export default function App() {
   }, [deviceId]);
 
   const checkSubscriptionStatus = async () => {
-    if (!deviceId) return;
+    if (!userEmail) {
+      setCheckingSubscription(false);
+      return;
+    }
     try {
       const response = await fetch(SUBSCRIPTION_STATUS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId }),
+        body: JSON.stringify({ email: userEmail }),
       });
       const data = await response.json();
       setIsPremium(data.isPremium === true);
-      if (data.isPremium) {
-        await AsyncStorage.setItem('opticab_premium', 'true');
-      } else {
-        await AsyncStorage.removeItem('opticab_premium');
-      }
-    } catch {
-      // Offline fallback — check local cache
-      const cached = await AsyncStorage.getItem('opticab_premium');
-      setIsPremium(cached === 'true');
-    } finally {
+    } catch {} finally {
       setCheckingSubscription(false);
     }
   };
@@ -131,11 +123,60 @@ export default function App() {
       Alert.alert('Loading', 'Please wait a moment and try again.');
       return;
     }
+    // Ask for email if not already saved
+    if (!userEmail) {
+      Alert.prompt
+        ? Alert.prompt('Enter Email', 'Your email is used to manage your subscription:', async (email) => {
+            if (email && email.includes('@')) {
+              setUserEmail(email);
+              await AsyncStorage.setItem('opticab_email', email);
+              startPayment(email);
+            }
+          }, 'plain-text', '', 'email-address')
+        : promptEmailAndroid();
+      return;
+    }
+    startPayment(userEmail);
+  };
+
+  const [emailInput, setEmailInput] = useState('');
+  const [showEmailPrompt, setShowEmailPrompt] = useState(false);
+
+  const promptEmailAndroid = () => {
+    setShowEmailPrompt(true);
+  };
+
+  const confirmEmailAndroid = async () => {
+    if (!emailInput || !emailInput.includes('@')) {
+      Alert.alert('Invalid', 'Please enter a valid email.');
+      return;
+    }
+    setUserEmail(emailInput);
+    await AsyncStorage.setItem('opticab_email', emailInput);
+    setShowEmailPrompt(false);
+    startPayment(emailInput);
+  };
+
+  const startPayment = async (email) => {
     try {
+      // First check if already premium
+      const statusRes = await fetch(SUBSCRIPTION_STATUS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const statusData = await statusRes.json();
+      if (statusData.isPremium) {
+        setIsPremium(true);
+        Alert.alert('Already Premium!', 'Your subscription is active. Fare-Watch is unlocked.');
+        return;
+      }
+
+      // Not premium — start payment
       const response = await fetch(CREATE_PAYMENT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId }),
+        body: JSON.stringify({ email }),
       });
       const data = await response.json();
       if (data.clientSecret && data.publishableKey) {
@@ -143,11 +184,10 @@ export default function App() {
         setPaymentUrl(url);
         setShowPaymentModal(true);
       } else {
-        Alert.alert('Error', data.details || data.error || 'Could not start payment. Please try again.');
+        Alert.alert('Error', data.details || data.error || 'Could not start payment.');
       }
     } catch (err) {
       Alert.alert('Error', 'Network error. Please check your connection.');
-      console.error('Upgrade error:', err);
     }
   };
 
@@ -229,10 +269,9 @@ export default function App() {
       if (data.status === 'success') {
         setShowPaymentModal(false);
         setIsPremium(true);
-        AsyncStorage.setItem('opticab_premium', 'true');
-        Alert.alert('🎉 Welcome to Premium!', 'The 30s Auto-Polling Radar is now unlocked.');
-        // Verify with backend
-        checkSubscriptionStatus();
+        Alert.alert('🎉 Welcome to Premium!', 'Fare-Watch is now unlocked.');
+        // Verify with backend after short delay (webhook needs time)
+        setTimeout(() => checkSubscriptionStatus(), 2000);
       }
     } catch {}
   };
@@ -613,6 +652,32 @@ export default function App() {
             <Text style={styles.upgradeText}>👑 Upgrade to unlock 30s Auto-Polling Radar</Text>
           </TouchableOpacity>
         )}
+
+        {/* Email Prompt Modal (Android) */}
+        <Modal visible={showEmailPrompt} transparent animationType="fade">
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }}>
+            <View style={{ backgroundColor: '#fff', borderRadius: 14, padding: 24 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Enter Email</Text>
+              <Text style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>Your email is used to manage your subscription.</Text>
+              <TextInput
+                style={{ borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 12, fontSize: 15 }}
+                placeholder="you@email.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={emailInput}
+                onChangeText={setEmailInput}
+              />
+              <View style={{ flexDirection: 'row', marginTop: 16, justifyContent: 'flex-end' }}>
+                <TouchableOpacity onPress={() => setShowEmailPrompt(false)} style={{ padding: 10, marginRight: 12 }}>
+                  <Text style={{ color: '#666' }}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={confirmEmailAndroid} style={{ backgroundColor: '#111', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 }}>
+                  <Text style={{ color: '#fff', fontWeight: '700' }}>Continue</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* Payment Modal */}
         <Modal

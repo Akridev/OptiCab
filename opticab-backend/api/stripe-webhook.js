@@ -1,8 +1,13 @@
 // api/stripe-webhook.js
-// Handles Stripe webhook events for subscription lifecycle
+// Handles Stripe webhook — writes premium status to DynamoDB
 import Stripe from 'stripe';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
+const docClient = DynamoDBDocumentClient.from(client);
+const TABLE = 'opticab-users';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -14,40 +19,28 @@ export default async function handler(req, res) {
     const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     event = stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
+    console.error('Webhook signature failed:', err.message);
     return res.status(400).json({ error: `Webhook Error: ${err.message}` });
   }
 
-  switch (event.type) {
-    case 'payment_intent.succeeded': {
-      const paymentIntent = event.data.object;
-      // If this is an OptiCab premium payment, create the subscription
-      if (paymentIntent.metadata?.type === 'opticab_premium_subscription' && paymentIntent.customer) {
-        try {
-          // Check if customer already has an active subscription
-          const existingSubs = await stripe.subscriptions.list({
-            customer: paymentIntent.customer,
-            status: 'active',
-            limit: 1,
-          });
-          if (existingSubs.data.length === 0) {
-            // Create the subscription (first payment already collected)
-            await stripe.subscriptions.create({
-              customer: paymentIntent.customer,
-              items: [{ price: process.env.STRIPE_PRICE_ID }],
-            });
-          }
-        } catch (err) {
-          console.error('Failed to create subscription after payment:', err);
-        }
-      }
-      break;
-    }
+  if (event.type === 'payment_intent.succeeded') {
+    const paymentIntent = event.data.object;
+    const email = paymentIntent.metadata?.email;
 
-    case 'customer.subscription.deleted': {
-      // Subscription cancelled — nothing to do server-side for now
-      // The subscription-status endpoint checks live status from Stripe
-      break;
+    if (email && paymentIntent.metadata?.type === 'opticab_premium') {
+      try {
+        await docClient.send(new PutCommand({
+          TableName: TABLE,
+          Item: {
+            email: email.toLowerCase().trim(),
+            isPremium: true,
+            subscribedAt: new Date().toISOString(),
+            stripeCustomerId: paymentIntent.customer,
+          },
+        }));
+      } catch (err) {
+        console.error('Failed to write premium status:', err);
+      }
     }
   }
 

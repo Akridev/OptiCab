@@ -1,5 +1,5 @@
 // api/create-payment.js
-// Creates a Stripe subscription and returns the client secret for in-app payment
+// Creates a Stripe PaymentIntent and returns client secret
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -8,37 +8,36 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
-  const { deviceId } = body;
+  const { email } = body;
 
-  if (!deviceId) {
-    return res.status(400).json({ error: 'Device ID required' });
+  if (!email) {
+    return res.status(400).json({ error: 'Email required' });
   }
 
-  try {
-    // Find or create customer
-    let customer;
-    const searchResult = await stripe.customers.search({
-      query: `metadata["deviceId"]:"${deviceId}"`,
-      limit: 1,
-    });
+  const normalizedEmail = email.toLowerCase().trim();
 
-    if (searchResult.data.length > 0) {
-      customer = searchResult.data[0];
+  try {
+    // Find or create Stripe customer by email
+    let customer;
+    const existing = await stripe.customers.list({ email: normalizedEmail, limit: 1 });
+
+    if (existing.data.length > 0) {
+      customer = existing.data[0];
     } else {
       customer = await stripe.customers.create({
-        metadata: { deviceId },
-        description: `OptiCab user (${deviceId.slice(0, 8)}...)`,
+        email: normalizedEmail,
+        metadata: { source: 'opticab' },
       });
     }
 
-    // Create a PaymentIntent directly (simpler than subscription for initial setup)
-    // Once payment succeeds, the webhook will create/activate the subscription
+    // Create PaymentIntent
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: 299, // $2.99 SGD in cents
+      amount: 299, // $2.99 SGD
       currency: 'sgd',
       customer: customer.id,
-      metadata: { deviceId, type: 'opticab_premium_subscription' },
+      metadata: { email: normalizedEmail, type: 'opticab_premium' },
       automatic_payment_methods: { enabled: true },
+      receipt_email: normalizedEmail,
     });
 
     return res.status(200).json({

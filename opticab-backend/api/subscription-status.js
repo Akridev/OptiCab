@@ -1,66 +1,38 @@
 // api/subscription-status.js
-// Checks if a device has an active premium subscription
-import Stripe from 'stripe';
+// Checks premium status from DynamoDB by email
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
+const docClient = DynamoDBDocumentClient.from(client);
+const TABLE = 'opticab-users';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
-  const { deviceId } = body;
+  const { email } = body;
 
-  if (!deviceId) {
-    return res.status(400).json({ error: 'Device ID required', isPremium: false });
+  if (!email) {
+    return res.status(200).json({ isPremium: false });
   }
 
   try {
-    // Search for customer by device ID metadata
-    const searchResult = await stripe.customers.search({
-      query: `metadata["deviceId"]:"${deviceId}"`,
-      limit: 1,
-    });
+    const result = await docClient.send(new GetCommand({
+      TableName: TABLE,
+      Key: { email: email.toLowerCase().trim() },
+    }));
 
-    if (searchResult.data.length === 0) {
-      return res.status(200).json({ isPremium: false });
-    }
-
-    const customerId = searchResult.data[0].id;
-
-    // Check for active subscriptions on this customer
-    const subscriptions = await stripe.subscriptions.list({
-      customer: customerId,
-      status: 'active',
-      limit: 1,
-    });
-
-    if (subscriptions.data.length > 0) {
-      const sub = subscriptions.data[0];
+    if (result.Item && result.Item.isPremium) {
       return res.status(200).json({
         isPremium: true,
-        plan: sub.items.data[0]?.price?.nickname || 'OptiCab Premium',
-        currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
-      });
-    }
-
-    // Also check trialing status
-    const trialSubs = await stripe.subscriptions.list({
-      customer: customerId,
-      status: 'trialing',
-      limit: 1,
-    });
-
-    if (trialSubs.data.length > 0) {
-      return res.status(200).json({
-        isPremium: true,
-        plan: 'OptiCab Premium (Trial)',
-        currentPeriodEnd: new Date(trialSubs.data[0].current_period_end * 1000).toISOString(),
+        subscribedAt: result.Item.subscribedAt || null,
       });
     }
 
     return res.status(200).json({ isPremium: false });
   } catch (error) {
-    console.error('Subscription status check error:', error);
-    return res.status(200).json({ isPremium: false, error: 'Check failed' });
+    console.error('Subscription status error:', error);
+    return res.status(200).json({ isPremium: false });
   }
 }
