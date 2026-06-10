@@ -407,7 +407,7 @@ export default function App() {
           <View style={styles.header}>
             <Text style={styles.title}>OptiCab</Text>
             <Text style={styles.subtitle}>Cheap & Quick</Text>
-            {isPremium && <Text style={styles.premiumBadge}>✓ Premium</Text>}
+            {isPremium && <Text style={styles.premiumBadge}>Premium</Text>}
           </View>
 
           {/* Input */}
