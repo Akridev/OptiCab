@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Keyboard, ScrollView, Platform, Modal, Image, Animated, StatusBar } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Application from 'expo-application';
@@ -314,22 +315,45 @@ export default function App() {
     return () => { clearInterval(radarTimer); clearInterval(countdownTimer); };
   }, [isPremium, isAutoPolling, result]);
 
-  // Deep linking
-  const launchDeepLink = (provider, dropoffName) => {
-    const pickupLat = resolvedCoords?.lat ?? 1.3048;
-    const pickupLng = resolvedCoords?.lng ?? 103.8318;
-    const encodedDropoff = encodeURIComponent(dropoffName || '');
-    let url = '';
-    switch (provider.toLowerCase()) {
-      case 'grab': url = `grab://open?screenType=BOOKING&pickupLat=${pickupLat}&pickupLng=${pickupLng}&dropoffQuery=${encodedDropoff}`; break;
-      case 'tada': url = `tada://booking?pickup_lat=${pickupLat}&pickup_lng=${pickupLng}&dropoff_query=${encodedDropoff}`; break;
-      case 'gojek': url = `gojek://goforward?service=GO_CAR&pickup=${pickupLat},${pickupLng}&destination_query=${encodedDropoff}`; break;
-      case 'ryde': url = `ryde://booking?pickuplat=${pickupLat}&pickuplng=${pickupLng}&destination=${encodedDropoff}`; break;
-      case 'comfortdelgro': url = `cdgmobility://booking?pickup_lat=${pickupLat}&pickup_lng=${pickupLng}&dropoff_query=${encodedDropoff}`; break;
-      case 'walk (healthy option)': url = `https://www.google.com/maps/dir/?api=1&origin=${pickupLat},${pickupLng}&destination=${encodedDropoff}&travelmode=walking`; break;
-      default: return;
+  // App config for deep linking
+  const APPS = {
+    grab: { scheme: 'grab://', iosStore: 'https://apps.apple.com/sg/app/grab-superapp/id647268330', androidStore: 'https://play.google.com/store/apps/details?id=com.grabtaxi.passenger' },
+    tada: { scheme: 'tada://', iosStore: 'https://apps.apple.com/sg/app/tada-ride-hailing/id1412329684', androidStore: 'https://play.google.com/store/apps/details?id=io.mvlchain.tada' },
+    gojek: { scheme: 'gojek://', iosStore: 'https://apps.apple.com/sg/app/gojek/id944875099', androidStore: 'https://play.google.com/store/apps/details?id=com.gojek.app' },
+    ryde: { scheme: 'ryde://', iosStore: 'https://apps.apple.com/sg/app/ryde-ride-hailing-more/id979806982', androidStore: 'https://play.google.com/store/apps/details?id=com.rydesharing.ryde' },
+    comfortdelgro: { scheme: 'cdgzig://', iosStore: 'https://apps.apple.com/sg/app/cdg-zig-taxis-cars/id954951647', androidStore: 'https://play.google.com/store/apps/details?id=com.codigo.comfort' },
+  };
+
+  const launchDeepLink = async (provider, dropoffName) => {
+    const destination = dropoffName || 'your destination';
+    const key = provider.toLowerCase();
+
+    // Walk option — always open maps
+    if (key === 'walk (healthy option)') {
+      const origin = `${resolvedCoords?.lat ?? 1.3048},${resolvedCoords?.lng ?? 103.8318}`;
+      const url = Platform.OS === 'ios'
+        ? `https://maps.apple.com/?saddr=${origin}&daddr=${encodeURIComponent(destination)}&dirflg=w`
+        : `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${encodeURIComponent(destination)}&travelmode=walking`;
+      Linking.openURL(url);
+      return;
     }
-    Linking.openURL(url).catch(() => showAlert('App Missing', `${provider} is not installed.`));
+
+    const app = APPS[key];
+    if (!app) return;
+
+    // Copy destination to clipboard
+    Clipboard.setStringAsync(destination);
+
+    showAlert(`Opening ${provider}`, `📋 Destination copied!\n\n"${destination}"\n\nPaste it in the "To" field after the app opens.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Open', onPress: async () => {
+        try {
+          await Linking.openURL(app.scheme);
+        } catch {
+          await Linking.openURL(Platform.OS === 'ios' ? app.iosStore : app.androidStore);
+        }
+      }},
+    ]);
   };
 
   // ─── RENDER ───
