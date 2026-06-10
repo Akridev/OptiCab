@@ -454,7 +454,8 @@ export default function App() {
         {/* Upgrade Footer */}
         {!isPremium && (
           <TouchableOpacity style={styles.upgradeBtn} onPress={handleUpgrade}>
-            <Text style={styles.upgradeBtnText}>👑 Upgrade to Fare-Watch</Text>
+            <Text style={styles.upgradeBtnText}>👑 Upgrade to Premium</Text>
+            <Text style={styles.upgradeBtnSub}>Runs automated Fare-Watch every 30s</Text>
           </TouchableOpacity>
         )}
 
@@ -506,10 +507,10 @@ export default function App() {
         )}
 
         {/* Payment Modal */}
-        <Modal visible={showPaymentModal} animationType="slide" onRequestClose={() => { setShowPaymentModal(false); setIsPremium(true); }}>
+        <Modal visible={showPaymentModal} animationType="slide" onRequestClose={() => setShowPaymentModal(false)}>
           <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
             <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => { setShowPaymentModal(false); setIsPremium(true); }}>
+              <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
                 <Text style={styles.modalClose}>✕ Close</Text>
               </TouchableOpacity>
             </View>
@@ -571,6 +572,7 @@ const styles = StyleSheet.create({
   cardCta: { fontSize: 11, color: COLORS.gold, fontWeight: '700', marginTop: 12 },
   upgradeBtn: { backgroundColor: COLORS.teal, padding: 15, borderRadius: 12, alignItems: 'center', position: 'absolute', bottom: 30, left: 16, right: 16, shadowColor: COLORS.teal, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
   upgradeBtnText: { color: COLORS.gold, fontWeight: '800', fontSize: 15 },
+  upgradeBtnSub: { color: COLORS.textMuted, fontSize: 11, marginTop: 3 },
   modalHeader: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   modalClose: { fontSize: 16, color: COLORS.textLight, fontWeight: '600' },
 });

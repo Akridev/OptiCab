@@ -106,9 +106,9 @@ export default function handler(req, res) {
     </div>
 
     <ul class="features">
-      <li>30-second Auto-Polling Fare Radar</li>
+      <li>Fare-Watch — live price tracking every 30s</li>
       <li>Real-time price drop alerts</li>
-      <li>Priority fare comparison updates</li>
+      <li>Never overpay — book at the cheapest window</li>
       <li>Cancel anytime</li>
     </ul>
 
