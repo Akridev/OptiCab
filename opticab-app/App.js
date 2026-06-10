@@ -487,6 +487,28 @@ export default function App() {
                 </View>
               )}
 
+              {/* Fare Calculation Breakdown */}
+              {(result.cheapest?.breakdown || result.fastest?.breakdown) && (
+                <View style={styles.calcBox}>
+                  <Text style={styles.calcTitle}>🧮 Fare Calculation</Text>
+                  {[result.cheapest, result.fastest].filter((opt, i, arr) => opt?.breakdown && (i === 0 || opt.provider !== arr[0]?.provider)).map((opt, idx) => {
+                    const b = opt.breakdown;
+                    return (
+                      <View key={idx} style={styles.calcItem}>
+                        <Text style={styles.calcProvider}>{opt.provider}</Text>
+                        <Text style={styles.calcFormula}>Distance charge = ({b.distanceKm} km - 1) × ${b.perKmRate}/km = ${b.distanceCharge.toFixed(2)}</Text>
+                        <Text style={styles.calcFormula}>Time charge = {b.estimatedRideMinutes} min × ${b.perMinRate}/min = ${b.timeCharge.toFixed(2)}</Text>
+                        <Text style={styles.calcFormula}>Subtotal = ${b.baseFare.toFixed(2)} + ${b.distanceCharge.toFixed(2)} + ${b.timeCharge.toFixed(2)} = ${b.subtotalBeforeSurge.toFixed(2)}</Text>
+                        {b.surgeApplied && <Text style={styles.calcFormula}>Surge = ${b.subtotalBeforeSurge.toFixed(2)} × {b.surgeMultiplier.toFixed(1)}x = ${b.subtotalAfterSurge.toFixed(2)}</Text>}
+                        <Text style={styles.calcFormula}>+ Booking fee: ${b.bookingFee.toFixed(2)}</Text>
+                        {b.minFareApplied && <Text style={styles.calcSurge}>↑ Min fare applied (${b.minFare.toFixed(2)})</Text>}
+                        <Text style={styles.calcTotal}>= ${opt.price.toFixed(2)}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
               {result.cheapest.provider === result.fastest.provider ? (
                 <TouchableOpacity style={styles.cardFull} onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}>
                   <Text style={styles.cardLabel}>💰⚡ CHEAPEST & FASTEST</Text>
@@ -631,6 +653,13 @@ const styles = StyleSheet.create({
   alertBox: { backgroundColor: COLORS.alert, borderLeftWidth: 4, borderLeftColor: COLORS.alertBorder, padding: 12, borderRadius: 8, marginBottom: 16 },
   alertTitle: { fontSize: 12, fontWeight: '700', color: COLORS.teal, marginBottom: 4 },
   alertText: { fontSize: 12, color: COLORS.textLight },
+  calcBox: { backgroundColor: COLORS.white, borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border },
+  calcTitle: { fontSize: 13, fontWeight: '700', color: COLORS.teal, marginBottom: 10 },
+  calcItem: { marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  calcProvider: { fontSize: 12, fontWeight: '700', color: COLORS.text, marginBottom: 6 },
+  calcFormula: { fontSize: 11, color: COLORS.textLight, marginBottom: 3, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  calcSurge: { fontSize: 11, color: COLORS.gold, fontWeight: '600', marginTop: 2 },
+  calcTotal: { fontSize: 13, fontWeight: '800', color: COLORS.teal, marginTop: 6 },
   routeBox: { backgroundColor: COLORS.white, padding: 12, borderRadius: 10, marginBottom: 12, borderWidth: 1, borderColor: COLORS.border },
   routeText: { fontSize: 13, fontWeight: '600', color: COLORS.text, textAlign: 'center' },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },

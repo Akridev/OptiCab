@@ -635,11 +635,11 @@ export default async function handler(req, res) {
     }
 
     let optionsPool = [];
-    if (activePlatforms.includes('Grab')) optionsPool.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.grab.rideDurationMinutes, carType: getCarType('Grab') });
-    if (activePlatforms.includes('TADA')) optionsPool.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.tada.rideDurationMinutes, carType: getCarType('TADA') });
-    if (activePlatforms.includes('Gojek')) optionsPool.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.gojek.rideDurationMinutes, carType: getCarType('Gojek') });
-    if (activePlatforms.includes('Ryde')) optionsPool.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.ryde.rideDurationMinutes, carType: getCarType('Ryde') });
-    if (activePlatforms.includes('ComfortDelGro')) optionsPool.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.cdg.rideDurationMinutes, carType: getCarType('ComfortDelGro') });
+    if (activePlatforms.includes('Grab')) optionsPool.push({ provider: 'Grab', price: fareMatrix.grab.estimatedFare, eta: fareMatrix.grab.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.grab.rideDurationMinutes, carType: getCarType('Grab'), breakdown: fareMatrix.grab.breakdown });
+    if (activePlatforms.includes('TADA')) optionsPool.push({ provider: 'TADA', price: fareMatrix.tada.estimatedFare, eta: fareMatrix.tada.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.tada.rideDurationMinutes, carType: getCarType('TADA'), breakdown: fareMatrix.tada.breakdown });
+    if (activePlatforms.includes('Gojek')) optionsPool.push({ provider: 'Gojek', price: fareMatrix.gojek.estimatedFare, eta: fareMatrix.gojek.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.gojek.rideDurationMinutes, carType: getCarType('Gojek'), breakdown: fareMatrix.gojek.breakdown });
+    if (activePlatforms.includes('Ryde')) optionsPool.push({ provider: 'Ryde', price: fareMatrix.ryde.estimatedFare, eta: fareMatrix.ryde.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.ryde.rideDurationMinutes, carType: getCarType('Ryde'), breakdown: fareMatrix.ryde.breakdown });
+    if (activePlatforms.includes('ComfortDelGro')) optionsPool.push({ provider: 'ComfortDelGro', price: fareMatrix.cdg.estimatedFare, eta: fareMatrix.cdg.baseEtaMinutes, rideDuration: rideDurationFromRouting || fareMatrix.cdg.rideDurationMinutes, carType: getCarType('ComfortDelGro'), breakdown: fareMatrix.cdg.breakdown });
 
     if (effectiveNeedsBabySeat) optionsPool = optionsPool.filter(opt => PROVIDER_FEATURES[opt.provider]?.babySeat);
     if (needsLargeVehicle) optionsPool = optionsPool.filter(opt => PROVIDER_FEATURES[opt.provider]?.largeVehicle);
