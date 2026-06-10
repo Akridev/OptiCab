@@ -23,7 +23,10 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -36,6 +39,12 @@
           "color": "#1D4E5F"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a2b68644-d647-4c29-93ee-2d1bdd812b4f"
+      }
+    },
+    "owner": "akridev"
   }
 }
