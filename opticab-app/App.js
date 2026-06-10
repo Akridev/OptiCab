@@ -493,15 +493,16 @@ export default function App() {
                   <Text style={styles.calcTitle}>🧮 Fare Calculation</Text>
                   {[result.cheapest, result.fastest].filter((opt, i, arr) => opt?.breakdown && (i === 0 || opt.provider !== arr[0]?.provider)).map((opt, idx) => {
                     const b = opt.breakdown;
+                    if (!b || !b.distanceKm) return null;
                     return (
                       <View key={idx} style={styles.calcItem}>
                         <Text style={styles.calcProvider}>{opt.provider}</Text>
-                        <Text style={styles.calcFormula}>Distance charge = ({b.distanceKm} km - 1) × ${b.perKmRate}/km = ${b.distanceCharge.toFixed(2)}</Text>
-                        <Text style={styles.calcFormula}>Time charge = {b.estimatedRideMinutes} min × ${b.perMinRate}/min = ${b.timeCharge.toFixed(2)}</Text>
-                        <Text style={styles.calcFormula}>Subtotal = ${b.baseFare.toFixed(2)} + ${b.distanceCharge.toFixed(2)} + ${b.timeCharge.toFixed(2)} = ${b.subtotalBeforeSurge.toFixed(2)}</Text>
-                        {b.surgeApplied && <Text style={styles.calcFormula}>Surge = ${b.subtotalBeforeSurge.toFixed(2)} × {b.surgeMultiplier.toFixed(1)}x = ${b.subtotalAfterSurge.toFixed(2)}</Text>}
-                        <Text style={styles.calcFormula}>+ Booking fee: ${b.bookingFee.toFixed(2)}</Text>
-                        {b.minFareApplied && <Text style={styles.calcSurge}>↑ Min fare applied (${b.minFare.toFixed(2)})</Text>}
+                        <Text style={styles.calcFormula}>Distance charge = ({b.distanceKm} km - 1) x ${b.perKmRate || 0}/km = ${(b.distanceCharge || 0).toFixed(2)}</Text>
+                        <Text style={styles.calcFormula}>Time charge = {b.estimatedRideMinutes || 0} min x ${b.perMinRate || 0}/min = ${(b.timeCharge || 0).toFixed(2)}</Text>
+                        <Text style={styles.calcFormula}>Subtotal = ${(b.baseFare || 0).toFixed(2)} + ${(b.distanceCharge || 0).toFixed(2)} + ${(b.timeCharge || 0).toFixed(2)} = ${(b.subtotalBeforeSurge || 0).toFixed(2)}</Text>
+                        {b.surgeApplied && <Text style={styles.calcFormula}>Surge = ${(b.subtotalBeforeSurge || 0).toFixed(2)} x {(b.surgeMultiplier || 1).toFixed(1)}x = ${(b.subtotalAfterSurge || 0).toFixed(2)}</Text>}
+                        <Text style={styles.calcFormula}>+ Booking fee: ${(b.bookingFee || 0).toFixed(2)}</Text>
+                        {b.minFareApplied && <Text style={styles.calcSurge}>↑ Min fare applied (${(b.minFare || 0).toFixed(2)})</Text>}
                         <Text style={styles.calcTotal}>= ${opt.price.toFixed(2)}</Text>
                       </View>
                     );

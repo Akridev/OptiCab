@@ -282,10 +282,43 @@ export default async function handler(req, res) {
     let parsedContext = safeParseJSON(llmOutput.trim());
 
     if (parsedContext && parsedContext.invalid) {
-      return res.status(200).json({
-        isInvalidInput: true,
-        message: "\uD83E\uDD16 OptiCab Assistant: I can only help with travel and transport planning in Singapore. Please enter a destination or a ride request!"
-      });
+      // LLM thinks it's invalid — verify with OneMap before rejecting
+      const locationQuery = userPrompt.trim()
+        .replace(/^(take\s+me\s+to|bring\s+me\s+to|go\s+to|get\s+me\s+to|i\s+want\s+to\s+go\s+to|heading\s+to|going\s+to|drive\s+me\s+to|send\s+me\s+to|from\s+\S+\s+to)\s+/i, '')
+        .trim();
+      
+      let isRealPlace = false;
+      if (locationQuery.length >= 3) {
+        try {
+          const omRes = await fetch(`https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(locationQuery)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`);
+          const omData = await omRes.json();
+          if (omData.results && omData.results.length > 0) {
+            isRealPlace = true;
+            const top = omData.results[0];
+            const bld = top.BUILDING && top.BUILDING !== 'NIL' ? top.BUILDING : '';
+            parsedContext = {
+              pickup: null,
+              dropoff: bld ? `${bld}, ${top.ADDRESS}` : top.ADDRESS,
+              distanceKm: 8,
+              passengers: 1,
+              needsBabySeat: false,
+              needsLargeVehicle: false,
+              childAges: [],
+              // Store resolved coords so we skip dropoff lookup later
+              _resolvedDropoffLat: parseFloat(top.LATITUDE),
+              _resolvedDropoffLng: parseFloat(top.LONGITUDE),
+              _resolvedDropoffDisplay: bld ? `${bld}, ${top.ADDRESS}` : top.ADDRESS,
+            };
+          }
+        } catch {}
+      }
+
+      if (!isRealPlace) {
+        return res.status(200).json({
+          isInvalidInput: true,
+          message: "\uD83E\uDD16 OptiCab Assistant: I can only help with travel and transport planning in Singapore. Please enter a destination or a ride request!"
+        });
+      }
     }
 
     if (!parsedContext || !parsedContext.dropoff) {
@@ -348,6 +381,13 @@ export default async function handler(req, res) {
     let dropoffDisplay = parsedContext.dropoff;
     let pickupDisplayName = resolvedPickup;
 
+    // Use pre-resolved coords from OneMap override (if LLM was wrong about validity)
+    if (parsedContext._resolvedDropoffLat) {
+      dropoffLat = parsedContext._resolvedDropoffLat;
+      dropoffLng = parsedContext._resolvedDropoffLng;
+      dropoffDisplay = parsedContext._resolvedDropoffDisplay;
+    }
+
     if (postalCodes.length >= 2) {
       // Two postal codes - match to pickup/dropoff using LLM interpretation
       const pickupText = (typeof parsedContext.pickup === 'string' ? parsedContext.pickup : '').toLowerCase();
@@ -400,6 +440,27 @@ export default async function handler(req, res) {
     // If pickup is GPS coordinates, parse them
     if (!pickupLat && /^\d+\.\d+,\s*\d+\.\d+$/.test(resolvedPickup)) {
       [pickupLat, pickupLng] = resolvedPickup.split(',').map(s => parseFloat(s.trim()));
+    }
+
+    // Verify pickup via OneMap if it's a place name (not GPS, not postal code)
+    if (!pickupLat && parsedContext.pickup && typeof parsedContext.pickup === 'string') {
+      try {
+        const pickupRes = await fetch(`https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(parsedContext.pickup)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`);
+        const pickupData = await pickupRes.json();
+        if (pickupData.results && pickupData.results.length > 0) {
+          const top = pickupData.results[0];
+          pickupLat = parseFloat(top.LATITUDE);
+          pickupLng = parseFloat(top.LONGITUDE);
+          const bld = top.BUILDING && top.BUILDING !== 'NIL' ? top.BUILDING : '';
+          pickupDisplayName = bld ? `${bld}, ${top.ADDRESS}` : top.ADDRESS;
+        } else {
+          // Pickup not found on OneMap — invalid
+          return res.status(200).json({
+            isInvalidInput: true,
+            message: `\uD83D\uDCCD "${parsedContext.pickup}" is not a recognised location. Please enter a valid "From" location (e.g., a postal code, street name, or landmark).`
+          });
+        }
+      } catch {}
     }
 
     // Task A: Verify dropoff via OneMap (only if not already resolved from postal code)
