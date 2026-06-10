@@ -13,6 +13,7 @@ const PAYMENT_FORM_URL = 'https://opticab-backend.vercel.app/api/payment-form';
 const SUBSCRIPTION_STATUS_URL = 'https://opticab-backend.vercel.app/api/subscription-status';
 const SAVED_ROUTES_URL = 'https://opticab-backend.vercel.app/api/saved-routes';
 const RIDE_HISTORY_URL = 'https://opticab-backend.vercel.app/api/ride-history';
+const FARE_REFRESH_URL = 'https://opticab-backend.vercel.app/api/fare-refresh';
 
 // ─── Theme ───
 const COLORS = {
@@ -119,6 +120,8 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const scrollViewRef = useRef(null);
   const [radarCountdown, setRadarCountdown] = useState(30);
+  const [radarRefreshing, setRadarRefreshing] = useState(false);
+  const [lastRouteData, setLastRouteData] = useState(null); // Cached route for Fare-Watch refreshes
   const [selectedApps, setSelectedApps] = useState(AVAILABLE_APPS);
   const [checkingSubscription, setCheckingSubscription] = useState(true);
   const [pickupIsCurrentLocation, setPickupIsCurrentLocation] = useState(false);
@@ -205,6 +208,20 @@ export default function App() {
     } catch {}
   };
 
+  // Lightweight fare refresh for Fare-Watch (skips LLM + routing)
+  const fareWatchRefresh = async () => {
+    if (!lastRouteData) return;
+    try {
+      const response = await fetch(FARE_REFRESH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(lastRouteData),
+      });
+      const data = await response.json();
+      if (data && !data.error) setResult(data);
+    } catch {}
+  };
+
   // Payment
   const handleUpgrade = () => setShowEmailPrompt(true);
 
@@ -264,6 +281,19 @@ export default function App() {
       if (!isBackgroundRefresh && data && !data.isInvalidInput) {
         setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 300);
         saveToHistory(data);
+        // Cache route data for Fare-Watch lightweight refreshes
+        if (data.extractedRoute) {
+          setLastRouteData({
+            pickupLat: resolvedCoords?.lat || null,
+            pickupLng: resolvedCoords?.lng || null,
+            dropoffName: getDropoffName(data.extractedRoute.dropoff),
+            distanceKm: data.cheapest?.rideDuration ? Math.round(data.cheapest.rideDuration * 25 / 60 * 10) / 10 : 8,
+            allowedApps: selectedApps,
+            pickupDisplay: getDropoffName(data.extractedRoute.pickup),
+            dropoffDisplay: getDropoffName(data.extractedRoute.dropoff),
+            pickupIsCurrentLocation: data.extractedRoute.pickupIsCurrentLocation || false,
+          });
+        }
       }
     } catch (err) {
       if (!isBackgroundRefresh) showAlert('Error', 'Failed to communicate with OptiCab.');
@@ -274,10 +304,15 @@ export default function App() {
   useEffect(() => {
     if (!isPremium || !isAutoPolling || !result) return;
     setRadarCountdown(30);
-    const radarTimer = setInterval(() => { handleSearchCommute(true); setRadarCountdown(30); }, 30000);
-    const countdownTimer = setInterval(() => { setRadarCountdown(prev => prev > 0 ? prev - 1 : 30); }, 1000);
+    const radarTimer = setInterval(async () => {
+      setRadarRefreshing(true);
+      await fareWatchRefresh();
+      setRadarRefreshing(false);
+      setRadarCountdown(30);
+    }, 30000);
+    const countdownTimer = setInterval(() => { setRadarCountdown(prev => prev > 0 ? prev - 1 : 0); }, 1000);
     return () => { clearInterval(radarTimer); clearInterval(countdownTimer); };
-  }, [isPremium, isAutoPolling, result, handleSearchCommute]);
+  }, [isPremium, isAutoPolling, result]);
 
   // Deep linking
   const launchDeepLink = (provider, dropoffName) => {
@@ -382,13 +417,26 @@ export default function App() {
           {/* Action Buttons */}
           <View style={styles.actionRow}>
             <TouchableOpacity style={styles.searchBtn} onPress={() => { Keyboard.dismiss(); handleSearchCommute(false); }}>
-              {loading ? <ActivityIndicator color={COLORS.teal} /> : <Text style={styles.searchBtnText}>Search Fares</Text>}
+              {loading && !isAutoPolling ? <ActivityIndicator color={COLORS.teal} /> : <Text style={styles.searchBtnText}>Search Fares</Text>}
             </TouchableOpacity>
-            {isPremium && result && (
-              <TouchableOpacity style={[styles.radarBtn, isAutoPolling && styles.radarBtnActive]} onPress={() => setIsAutoPolling(!isAutoPolling)}>
-                <Text style={[styles.radarBtnText, isAutoPolling && styles.radarBtnTextActive]}>
-                  {isAutoPolling ? `📡 ${radarCountdown}s` : '🛰️ Fare-Watch'}
-                </Text>
+            {isPremium && (
+              <TouchableOpacity
+                style={[styles.radarBtn, isAutoPolling && styles.radarBtnActive]}
+                onPress={async () => {
+                  if (isAutoPolling) {
+                    setIsAutoPolling(false);
+                  } else {
+                    Keyboard.dismiss();
+                    setIsAutoPolling(true);
+                    await handleSearchCommute(false);
+                  }
+                }}
+              >
+                {(loading && isAutoPolling) || radarRefreshing ? <ActivityIndicator color={isAutoPolling ? COLORS.gold : COLORS.teal} /> :
+                  <Text style={[styles.radarBtnText, isAutoPolling && styles.radarBtnTextActive]}>
+                    {isAutoPolling ? `📡 ${radarCountdown}s` : '🛰️ Fare-Watch'}
+                  </Text>
+                }
               </TouchableOpacity>
             )}
           </View>

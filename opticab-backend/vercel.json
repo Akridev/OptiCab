@@ -27,6 +27,9 @@
     },
     "api/ride-history.js": {
       "maxDuration": 10
+    },
+    "api/fare-refresh.js": {
+      "maxDuration": 15
     }
   }
 }
