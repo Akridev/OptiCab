@@ -487,6 +487,10 @@ export default async function handler(req, res) {
       typeof parsedContext.dropoff === 'string' ? parsedContext.dropoff : ''
     ).catch(() => ({ socialResults: { results: [] }, mrtResults: { results: [] }, eventResults: { results: [] } }));
 
+
+    const [fareMatrix, ltaIncidents, weatherForecasts, exaLayers] = await Promise.all([
+      faresPromise, ltaPromise, weatherPromise, exaPromise
+    ]);
     // â•â•â• PHASE 5: Analysis & Response â•â•â•
     const pickupCoords = (pickupLat && pickupLng) ? { lat: pickupLat, lng: pickupLng } : null;
     let routeIncidents = [];
