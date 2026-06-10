@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Keyboard, ScrollView, Platform, Modal, Image, Animated, StatusBar } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as Notifications from 'expo-notifications';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Application from 'expo-application';
@@ -122,7 +123,20 @@ export default function App() {
   const scrollViewRef = useRef(null);
   const [radarCountdown, setRadarCountdown] = useState(30);
   const [radarRefreshing, setRadarRefreshing] = useState(false);
-  const [lastRouteData, setLastRouteData] = useState(null); // Cached route for Fare-Watch refreshes
+  const [lastRouteData, setLastRouteData] = useState(null);
+  const lastPriceRef = useRef(null); // Track previous cheapest price for drop detection
+
+  // Setup notifications on mount
+  useEffect(() => {
+    (async () => {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status === 'granted') {
+        Notifications.setNotificationHandler({
+          handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
+        });
+      }
+    })();
+  }, []);
   const [selectedApps, setSelectedApps] = useState(AVAILABLE_APPS);
   const [checkingSubscription, setCheckingSubscription] = useState(true);
   const [pickupIsCurrentLocation, setPickupIsCurrentLocation] = useState(false);
@@ -219,7 +233,24 @@ export default function App() {
         body: JSON.stringify(lastRouteData),
       });
       const data = await response.json();
-      if (data && !data.error) setResult(data);
+      if (data && !data.error) {
+        // Check for price drop
+        const newCheapest = data.cheapest?.price;
+        const prevPrice = lastPriceRef.current;
+        if (prevPrice && newCheapest && newCheapest < prevPrice) {
+          const savings = (prevPrice - newCheapest).toFixed(2);
+          Notifications.scheduleNotificationAsync({
+            content: {
+              title: '💰 Price Dropped!',
+              body: `${data.cheapest.provider} now $${newCheapest.toFixed(2)} (was $${prevPrice.toFixed(2)}) — save $${savings}`,
+              sound: true,
+            },
+            trigger: null, // fire immediately
+          });
+        }
+        lastPriceRef.current = newCheapest;
+        setResult(data);
+      }
     } catch {}
   };
 
@@ -284,6 +315,7 @@ export default function App() {
         saveToHistory(data);
         // Cache route data for Fare-Watch lightweight refreshes
         if (data.extractedRoute) {
+          lastPriceRef.current = data.cheapest?.price || null;
           setLastRouteData({
             pickupLat: resolvedCoords?.lat || null,
             pickupLng: resolvedCoords?.lng || null,

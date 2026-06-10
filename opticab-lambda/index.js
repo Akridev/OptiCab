@@ -170,21 +170,26 @@ function getSurgeMultiplier(providerKey, sgHour) {
 // Prevents all providers returning identical wait times
 // ─────────────────────────────────────────────
 
-function computeEta(providerKey, distanceKm, surgeMultiplier) {
+function computeEta(providerKey, distanceKm, surgeMultiplier, sgHour) {
   const config = FARE_CONFIG[providerKey];
 
-  let eta = config.baseEta;
+  // Base ETA adjusted by time of day (fleet availability)
+  let timeMultiplier = 1.0;
+  if (sgHour >= 7 && sgHour < 9) timeMultiplier = 1.5;        // Morning peak
+  else if (sgHour >= 17 && sgHour < 20) timeMultiplier = 1.7;  // Evening peak
+  else if (sgHour >= 23 || sgHour < 2) timeMultiplier = 1.4;   // Late night
+  else if (sgHour >= 12 && sgHour < 13) timeMultiplier = 1.2;  // Lunch hour
 
-  if (distanceKm > 10)
-    eta += 1;
+  let eta = Math.round(config.baseEta * timeMultiplier);
 
-  if (distanceKm > 20)
-    eta += 1;
+  // Long distance = slightly longer pickup (fewer nearby drivers)
+  if (distanceKm > 10) eta += 1;
+  if (distanceKm > 20) eta += 1;
 
-  if (surgeMultiplier > 1.4)
-    eta -= 1;
+  // High surge = more drivers active (incentivized) = faster pickup
+  if (surgeMultiplier > 1.4) eta -= 1;
 
-  return Math.max(2, Math.min(10, eta));
+  return Math.max(2, Math.min(12, eta));
 }
 
 // ─────────────────────────────────────────────
@@ -316,7 +321,8 @@ if (
     baseEtaMinutes: computeEta(
       providerKey,
       distanceKm,
-      surge
+      surge,
+      sgHour
     ),
     rideDurationMinutes:
       estimatedRideMinutes,
