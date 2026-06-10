@@ -260,8 +260,6 @@ export default function App() {
         setShowPaymentModal(false);
         setIsPremium(true);
         Alert.alert('🎉 Welcome to Premium!', 'Fare-Watch is now unlocked.');
-        // Verify with backend after short delay (webhook needs time)
-        setTimeout(() => checkSubscriptionStatus(), 2000);
       }
     } catch {}
   };
@@ -644,43 +642,73 @@ export default function App() {
         )}
 
         {/* Email Prompt Modal (Android) */}
-        <Modal visible={showEmailPrompt} transparent animationType="fade">
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }}>
-            <View style={{ backgroundColor: '#fff', borderRadius: 14, padding: 24 }}>
-              <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Enter Email</Text>
-              <Text style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>Your email is used to manage your subscription.</Text>
-              <TextInput
-                style={{ borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 12, fontSize: 15 }}
-                placeholder="you@email.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={emailInput}
-                onChangeText={setEmailInput}
-                onSubmitEditing={() => { Keyboard.dismiss(); confirmEmailAndroid(); }}
-                returnKeyType="done"
-              />
-              <View style={{ flexDirection: 'row', marginTop: 16, justifyContent: 'flex-end' }}>
-                <TouchableOpacity onPress={() => { Keyboard.dismiss(); setShowEmailPrompt(false); }} style={{ padding: 10, marginRight: 12 }}>
-                  <Text style={{ color: '#666' }}>Cancel</Text>
+        {showEmailPrompt && (
+          <Modal visible={true} transparent animationType="fade" onRequestClose={() => setShowEmailPrompt(false)}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }}>
+              <View style={{ backgroundColor: '#fff', borderRadius: 14, padding: 24 }}>
+                <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Enter Email</Text>
+                <Text style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>Your email is used to manage your subscription.</Text>
+                <TextInput
+                  style={{ borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 12, fontSize: 15, marginBottom: 16 }}
+                  placeholder="you@email.com"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={emailInput}
+                  onChangeText={setEmailInput}
+                />
+                <TouchableOpacity
+                  onPress={async () => {
+                    Keyboard.dismiss();
+                    if (!emailInput || !emailInput.includes('@')) {
+                      Alert.alert('Invalid', 'Please enter a valid email.');
+                      return;
+                    }
+                    const email = emailInput.trim().toLowerCase();
+                    setUserEmail(email);
+                    AsyncStorage.setItem('opticab_email', email);
+                    setShowEmailPrompt(false);
+                    try {
+                      const response = await fetch(CREATE_PAYMENT_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email }),
+                      });
+                      const data = await response.json();
+                      if (data.clientSecret && data.publishableKey) {
+                        setPaymentUrl(`${PAYMENT_FORM_URL}?clientSecret=${encodeURIComponent(data.clientSecret)}&publishableKey=${encodeURIComponent(data.publishableKey)}`);
+                        setShowPaymentModal(true);
+                      } else {
+                        Alert.alert('Payment Error', data.details || data.error || 'Failed');
+                      }
+                    } catch (e) {
+                      Alert.alert('Network Error', e.message);
+                    }
+                  }}
+                  style={{ backgroundColor: '#111', padding: 14, borderRadius: 8, alignItems: 'center', marginBottom: 10 }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Continue</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => { Keyboard.dismiss(); confirmEmailAndroid(); }} style={{ backgroundColor: '#111', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 }}>
-                  <Text style={{ color: '#fff', fontWeight: '700' }}>Continue</Text>
+                <TouchableOpacity
+                  onPress={() => setShowEmailPrompt(false)}
+                  style={{ padding: 10, alignItems: 'center' }}
+                >
+                  <Text style={{ color: '#666', fontSize: 14 }}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </Modal>
+          </Modal>
+        )}
 
         {/* Payment Modal */}
         <Modal
           visible={showPaymentModal}
           animationType="slide"
           presentationStyle="pageSheet"
-          onRequestClose={() => setShowPaymentModal(false)}
+          onRequestClose={() => { setShowPaymentModal(false); setIsPremium(true); }}
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: '#FAFAFA' }}>
             <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
+              <TouchableOpacity onPress={() => { setShowPaymentModal(false); setIsPremium(true); }}>
                 <Text style={styles.modalClose}>✕ Close</Text>
               </TouchableOpacity>
             </View>
