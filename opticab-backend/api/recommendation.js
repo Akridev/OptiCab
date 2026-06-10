@@ -235,6 +235,15 @@ export default async function handler(req, res) {
     return res.status(200).json({ isInvalidInput: true, message: "Please enter a valid destination!" });
   }
 
+  // Basic content filter (no LLM needed) — catch obviously non-travel inputs
+  const lowerInput = userPrompt.toLowerCase();
+  if (/\b(die|kill|suicide|harm|hurt myself)\b/.test(lowerInput)) {
+    return res.status(200).json({ isInvalidInput: true, message: "If you're in distress, please reach out to SOS Singapore: 1-767 (24hr). You're not alone. \uD83D\uDC9A" });
+  }
+  if (/^(hi|hello|hey|what|who|why|how|when|where are you|tell me|can you)\b/.test(lowerInput) && !/\b(to|from|go|take|bring|ride|cab|taxi|grab|\d{6})\b/.test(lowerInput)) {
+    return res.status(200).json({ isInvalidInput: true, message: "I'm OptiCab \u2014 enter a destination to compare ride fares! (e.g., \"Take me to Orchard Road\")" });
+  }
+
   // ─── Fast Pre-Filter: Catch obvious nonsense before any API/LLM calls ───
   const trimmedPrompt = userPrompt.trim();
 
@@ -259,37 +268,12 @@ export default async function handler(req, res) {
     // ═══ PHASE 1: Guard LLM + Postal Resolution in PARALLEL ═══
     const postalCodes = extractPostalCodes(userPrompt);
 
-    const guardPromise = generateText({
-      model: groq('llama-3.1-8b-instant'),
-      system: `You are the safety gatekeeper for OptiCab Singapore. Analyze the user prompt.
-               Determine if the input is a genuine request to travel to a REAL, IDENTIFIABLE location in Singapore.
-               IMPORTANT RULES:
-               - Singapore postal codes (6-digit numbers like 238801, 018956, 540123) ARE valid. Return "VALID".
-               - Real Singapore street names, building names, MRT station names, malls, landmarks, and area names are VALID.
-               - If the destination sounds like it could plausibly be a real place name (even if you are unsure), return "VALID".
-               - Return "INVALID" if:
-                 * The input is completely unrelated to travel (math, recipes, chit-chat, questions)
-                 * The input contains profanity, insults, or abuse
-                 * The destination is clearly fictional, nonsensical, or made-up gibberish (e.g., "donkey place", "unicorn land", "asdfgh", "nowhere", "lalaland")
-                 * The destination is a well-known place OUTSIDE Singapore (e.g., "Tokyo", "New York", "London") with no Singapore context
-               Return EXACTLY one word: "VALID" or "INVALID". Nothing else.`,
-      prompt: `User Prompt: "${userPrompt}"`,
-    });
-
-    // All postal codes resolve in parallel (was sequential for-loop)
+    // Resolve all postal codes in parallel
     const postalPromises = postalCodes.map(code =>
       resolvePostalCode(code).then(resolved => ({ code, resolved }))
     );
 
-    const [guardResult, ...postalResults] = await Promise.all([guardPromise, ...postalPromises]);
-
-    // Check guard — abort early if invalid (but skip if postal codes detected — always valid)
-    if (guardResult.text.trim() === 'INVALID' && postalCodes.length === 0) {
-      return res.status(200).json({
-        isInvalidInput: true,
-        message: "\uD83E\uDD16 OptiCab Assistant: I can only help with travel and transport planning in Singapore. Please enter a destination or a ride request!"
-      });
-    }
+    const postalResults = await Promise.all(postalPromises);
 
     // Build enriched prompt from resolved postals
     let enrichedPrompt = userPrompt;
