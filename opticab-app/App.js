@@ -212,16 +212,14 @@ export default function App() {
           deviceId,
           action: 'save',
           ride: {
-            pickup: resultData.extractedRoute.pickup,
-            dropoff: resultData.extractedRoute.dropoff,
+            prompt: promptText,
             cheapestProvider: resultData.cheapest?.provider,
             cheapestPrice: resultData.cheapest?.price,
-            fastestProvider: resultData.fastest?.provider,
-            fastestPrice: resultData.fastest?.price,
-            prompt: promptText,
           },
         }),
       });
+      // Refresh history after save
+      loadRideHistory();
     } catch {}
   };
 
@@ -455,18 +453,18 @@ export default function App() {
             <View style={styles.historyPanel}>
               <Text style={styles.historyTitle}>Recent Searches</Text>
               {rideHistory.length === 0 ? (
-                <Text style={styles.historyMeta}>No searches yet. Your history will appear here after your first search.</Text>
+                <Text style={styles.historyMeta}>No searches yet.</Text>
               ) : (
-                rideHistory.slice(0, 5).map((ride, idx) => (
+                rideHistory.slice(0, 3).map((ride, idx) => (
                   <TouchableOpacity
                     key={idx}
                     style={styles.historyItem}
                     onPress={() => { setPromptText(ride.prompt); setShowHistory(false); }}
                   >
-                    <Text style={styles.historyRoute}>{ride.pickup} → {ride.dropoff}</Text>
-                    <Text style={styles.historyMeta}>
-                      {ride.cheapestProvider} ${ride.cheapestPrice?.toFixed(2)} • {new Date(ride.timestamp).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                    </Text>
+                    <Text style={styles.historyRoute}>{ride.prompt}</Text>
+                    {ride.cheapestProvider && (
+                      <Text style={styles.historyMeta}>{ride.cheapestProvider} ${ride.cheapestPrice?.toFixed(2)}</Text>
+                    )}
                   </TouchableOpacity>
                 ))
               )}

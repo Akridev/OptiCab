@@ -1,7 +1,7 @@
 // api/ride-history.js
-// Stores and retrieves ride search history
+// Stores and retrieves last 3 ride searches
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 
 const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
 const docClient = DynamoDBDocumentClient.from(client);
@@ -18,41 +18,55 @@ export default async function handler(req, res) {
   }
 
   try {
-    // GET ride history (last 20 rides)
+    // GET last 3 searches
     if (action === 'get') {
       const result = await docClient.send(new QueryCommand({
         TableName: TABLE,
         KeyConditionExpression: 'deviceId = :did',
         ExpressionAttributeValues: { ':did': deviceId },
-        ScanIndexForward: false, // newest first
-        Limit: 20,
+        ScanIndexForward: false,
+        Limit: 3,
       }));
       return res.status(200).json({ history: result.Items || [] });
     }
 
-    // SAVE a ride to history
+    // SAVE a search (keep only last 3)
     if (action === 'save') {
       const { ride } = body;
       if (!ride) return res.status(400).json({ error: 'Ride data required' });
 
-      const item = {
-        deviceId,
-        timestamp: new Date().toISOString(),
-        pickup: ride.pickup || 'Unknown',
-        dropoff: ride.dropoff || 'Unknown',
-        cheapestProvider: ride.cheapestProvider || null,
-        cheapestPrice: ride.cheapestPrice || null,
-        fastestProvider: ride.fastestProvider || null,
-        fastestPrice: ride.fastestPrice || null,
-        prompt: ride.prompt || '',
-      };
-
+      // Save new entry
       await docClient.send(new PutCommand({
         TableName: TABLE,
-        Item: item,
+        Item: {
+          deviceId,
+          timestamp: new Date().toISOString(),
+          prompt: ride.prompt || '',
+          cheapestProvider: ride.cheapestProvider || null,
+          cheapestPrice: ride.cheapestPrice || null,
+        },
       }));
 
-      return res.status(200).json({ saved: true, item });
+      // Clean up old entries (keep only last 3)
+      const all = await docClient.send(new QueryCommand({
+        TableName: TABLE,
+        KeyConditionExpression: 'deviceId = :did',
+        ExpressionAttributeValues: { ':did': deviceId },
+        ScanIndexForward: false,
+        Limit: 10,
+      }));
+
+      if (all.Items && all.Items.length > 3) {
+        const toDelete = all.Items.slice(3);
+        for (const item of toDelete) {
+          await docClient.send(new DeleteCommand({
+            TableName: TABLE,
+            Key: { deviceId: item.deviceId, timestamp: item.timestamp },
+          }));
+        }
+      }
+
+      return res.status(200).json({ saved: true });
     }
 
     return res.status(400).json({ error: 'Invalid action. Use: get, save' });
