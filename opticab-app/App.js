@@ -121,27 +121,12 @@ export default function App() {
   };
 
   const handleUpgrade = async () => {
-    if (!deviceId) {
-      Alert.alert('Loading', 'Please wait a moment and try again.');
-      return;
-    }
-    // Ask for email if not already saved
-    if (!userEmail) {
-      Alert.prompt
-        ? Alert.prompt('Enter Email', 'Your email is used to manage your subscription:', async (email) => {
-            if (email && email.includes('@')) {
-              setUserEmail(email);
-              await AsyncStorage.setItem('opticab_email', email);
-              startPayment(email);
-            }
-          }, 'plain-text', '', 'email-address')
-        : promptEmailAndroid();
-      return;
-    }
-    startPayment(userEmail);
+    // Always show email prompt (user can confirm or change their email)
+    setShowEmailPrompt(true);
   };
 
   const promptEmailAndroid = () => {
+    if (userEmail) setEmailInput(userEmail);
     setShowEmailPrompt(true);
   };
 
@@ -150,10 +135,12 @@ export default function App() {
       Alert.alert('Invalid', 'Please enter a valid email.');
       return;
     }
-    setUserEmail(emailInput);
-    await AsyncStorage.setItem('opticab_email', emailInput);
+    const email = emailInput.trim().toLowerCase();
+    setUserEmail(email);
+    await AsyncStorage.setItem('opticab_email', email);
     setShowEmailPrompt(false);
-    startPayment(emailInput);
+    Alert.alert('Loading...', 'Setting up payment...');
+    await startPayment(email);
   };
 
   const startPayment = async (email) => {
@@ -170,8 +157,12 @@ export default function App() {
         Alert.alert('Already Premium!', 'Your subscription is active. Fare-Watch is unlocked.');
         return;
       }
+    } catch {
+      // Status check failed — proceed to payment anyway
+    }
 
-      // Not premium — start payment
+    // Not premium — start payment
+    try {
       const response = await fetch(CREATE_PAYMENT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -183,10 +174,10 @@ export default function App() {
         setPaymentUrl(url);
         setShowPaymentModal(true);
       } else {
-        Alert.alert('Error', data.details || data.error || 'Could not start payment.');
+        Alert.alert('Payment Error', data.details || data.error || 'Could not start payment.');
       }
     } catch (err) {
-      Alert.alert('Error', 'Network error. Please check your connection.');
+      Alert.alert('Network Error', 'Please check your connection and try again.');
     }
   };
 
@@ -665,12 +656,14 @@ export default function App() {
                 autoCapitalize="none"
                 value={emailInput}
                 onChangeText={setEmailInput}
+                onSubmitEditing={() => { Keyboard.dismiss(); confirmEmailAndroid(); }}
+                returnKeyType="done"
               />
               <View style={{ flexDirection: 'row', marginTop: 16, justifyContent: 'flex-end' }}>
-                <TouchableOpacity onPress={() => setShowEmailPrompt(false)} style={{ padding: 10, marginRight: 12 }}>
+                <TouchableOpacity onPress={() => { Keyboard.dismiss(); setShowEmailPrompt(false); }} style={{ padding: 10, marginRight: 12 }}>
                   <Text style={{ color: '#666' }}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={confirmEmailAndroid} style={{ backgroundColor: '#111', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 }}>
+                <TouchableOpacity onPress={() => { Keyboard.dismiss(); confirmEmailAndroid(); }} style={{ backgroundColor: '#111', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 }}>
                   <Text style={{ color: '#fff', fontWeight: '700' }}>Continue</Text>
                 </TouchableOpacity>
               </View>
