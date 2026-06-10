@@ -25,6 +25,8 @@
       },
       "permissions": [
         "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
       ]
     },
@@ -46,6 +48,12 @@
         "projectId": "a2b68644-d647-4c29-93ee-2d1bdd812b4f"
       }
     },
-    "owner": "akridev"
+    "owner": "akridev",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/a2b68644-d647-4c29-93ee-2d1bdd812b4f"
+    }
   }
 }
