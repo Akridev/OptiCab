@@ -283,8 +283,8 @@ export default async function handler(req, res) {
 
     const [guardResult, ...postalResults] = await Promise.all([guardPromise, ...postalPromises]);
 
-    // Check guard — abort early if invalid
-    if (guardResult.text.trim() === 'INVALID') {
+    // Check guard — abort early if invalid (but skip if postal codes detected — always valid)
+    if (guardResult.text.trim() === 'INVALID' && postalCodes.length === 0) {
       return res.status(200).json({
         isInvalidInput: true,
         message: "\uD83E\uDD16 OptiCab Assistant: I can only help with travel and transport planning in Singapore. Please enter a destination or a ride request!"
