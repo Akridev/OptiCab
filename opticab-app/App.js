@@ -14,7 +14,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { WebView } from 'react-native-webview';
+import { PaymentWebView } from './WebViewWrapper';
 
 // ─── Config ───
 const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
@@ -624,7 +624,9 @@ export default function App() {
                 <Text style={styles.modalClose}>✕ Close</Text>
               </TouchableOpacity>
             </View>
-            {paymentUrl && <WebView source={{ uri: paymentUrl }} onMessage={handlePaymentMessage} style={{ flex: 1 }} />}
+            {paymentUrl && (
+              <PaymentWebView uri={paymentUrl} onMessage={handlePaymentMessage} style={{ flex: 1 }} />
+            )}
           </SafeAreaView>
         </Modal>
       </SafeAreaView>
