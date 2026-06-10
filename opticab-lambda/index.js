@@ -7,7 +7,33 @@
 // SECTION 1: Singapore Provider Fare Structures
 // Based on publicly available 2024/2025 fare schedules
 // ─────────────────────────────────────────────
-
+const PROVIDER_BEHAVIOUR = {
+  grab: {
+    surgeBias: 1.15,
+    calibration: 1.02,
+    offPeakDiscount: 0.95,
+  },
+  tada: {
+    surgeBias: 0.95,
+    calibration: 0.95,
+    offPeakDiscount: 0.98,
+  },
+  gojek: {
+    surgeBias: 1.05,
+    calibration: 0.98,
+    offPeakDiscount: 0.97,
+  },
+  ryde: {
+    surgeBias: 0.90,
+    calibration: 0.95,
+    offPeakDiscount: 0.99,
+  },
+  cdg: {
+    surgeBias: 0.85,
+    calibration: 1.04,
+    offPeakDiscount: 1.00,
+  },
+};
 const FARE_CONFIG = {
   grab: {
     baseFare: 4.80,       // Flag-fall (SGD)
@@ -28,28 +54,28 @@ const FARE_CONFIG = {
     surgeCapMultiplier: 1.8, // TADA caps surge more aggressively
   },
   gojek: {
-    baseFare: 4.50,
+    baseFare: 4.20,
     perKmRate: 1.10,
     perMinRate: 0.28,
-    bookingFee: 1.50,
+    bookingFee: 1.20,
     minFare: 7.50,
     baseEta: 4,
     surgeCapMultiplier: 2.2,
   },
   ryde: {
-    baseFare: 3.50,       // Budget-positioned, lowest base in market
+    baseFare: 3.80,       // Budget-positioned, lowest base in market
     perKmRate: 0.95,
     perMinRate: 0.25,
-    bookingFee: 1.00,
+    bookingFee: 0.80,
     minFare: 6.50,
     baseEta: 6,           // Smallest fleet, highest ETA variance
     surgeCapMultiplier: 1.6,
   },
   cdg: {
-    baseFare: 4.20,       // ComfortDelGro — premium metered-taxi heritage pricing
+    baseFare: 4.60,       // ComfortDelGro — premium metered-taxi heritage pricing
     perKmRate: 1.30,
     perMinRate: 0.33,
-    bookingFee: 3.30,     // CDG charges a higher booking fee via app
+    bookingFee: 2.50,     // CDG charges a higher booking fee via app
     minFare: 9.00,
     baseEta: 3,
     surgeCapMultiplier: 1.5, // Traditional taxi — regulated, low surge ceiling
@@ -101,28 +127,41 @@ function parseCoordinates(locationString) {
 
 function getSurgeMultiplier(providerKey, sgHour) {
   const config = FARE_CONFIG[providerKey];
+  const behaviour = PROVIDER_BEHAVIOUR[providerKey];
 
-  let rawSurge = 1.0;
+  let surge = 1.0;
 
-  // Morning peak
+  // Morning rush
   if (sgHour >= 7 && sgHour < 9) {
-    rawSurge = 1.6;
-  }
-  // Evening peak — highest demand window
-  else if (sgHour >= 17 && sgHour < 20) {
-    rawSurge = 1.9;
-  }
-  // Late-night premium (post-MRT hours)
-  else if (sgHour >= 23 || sgHour < 1) {
-    rawSurge = 1.4;
-  }
-  // Standard off-peak
-  else {
-    rawSurge = 1.0;
+    surge = 1.35;
   }
 
-  // Each provider has a hard cap on how high surge can go
-  return Math.min(rawSurge, config.surgeCapMultiplier);
+  // Lunch
+  else if (sgHour >= 12 && sgHour < 14) {
+    surge = 1.10;
+  }
+
+  // Evening peak
+  else if (sgHour >= 17 && sgHour < 20) {
+    surge = 1.60;
+  }
+
+  // Late night
+  else if (sgHour >= 23 || sgHour < 1) {
+    surge = 1.25;
+  }
+
+  // Off peak
+  else {
+    surge = behaviour.offPeakDiscount;
+  }
+
+  surge *= behaviour.surgeBias;
+
+  return Math.min(
+    parseFloat(surge.toFixed(2)),
+    config.surgeCapMultiplier
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -134,17 +173,18 @@ function getSurgeMultiplier(providerKey, sgHour) {
 function computeEta(providerKey, distanceKm, surgeMultiplier) {
   const config = FARE_CONFIG[providerKey];
 
-  // ETA = pickup wait time only (not ride duration)
-  // Higher surge = more drivers active = slightly faster pickup
-  const surgeEtaDiscount = surgeMultiplier > 1.3 ? -1 : 0;
+  let eta = config.baseEta;
 
-  // Random fleet noise: ±1 minute
-  const fleetNoise = Math.floor(Math.random() * 3) - 1;
+  if (distanceKm > 10)
+    eta += 1;
 
-  const totalEta = config.baseEta + surgeEtaDiscount + fleetNoise;
+  if (distanceKm > 20)
+    eta += 1;
 
-  // Clamp: 2–10 min pickup window (realistic for Singapore)
-  return Math.max(2, Math.min(10, totalEta));
+  if (surgeMultiplier > 1.4)
+    eta -= 1;
+
+  return Math.max(2, Math.min(10, eta));
 }
 
 // ─────────────────────────────────────────────
@@ -155,31 +195,135 @@ function computeEta(providerKey, distanceKm, surgeMultiplier) {
 
 function calculateFare(providerKey, distanceKm, sgHour) {
   const config = FARE_CONFIG[providerKey];
+  const behaviour = PROVIDER_BEHAVIOUR[providerKey];
+
   const surge = getSurgeMultiplier(providerKey, sgHour);
 
-  // Distance charge: first 1km is covered by base fare, per-km kicks in after
-  const chargeableKm = Math.max(0, distanceKm - 1.0);
-  const distanceCharge = chargeableKm * config.perKmRate;
+  const chargeableKm = Math.max(0, distanceKm - 1);
 
-  // Time charge: estimated ride minutes at 25 km/h urban average
-  const estimatedRideMinutes = Math.max(3, Math.round((distanceKm / 25) * 60));
-  const timeCharge = estimatedRideMinutes * config.perMinRate;
+  const distanceCharge =
+    chargeableKm * config.perKmRate;
 
-  // Apply surge multiplier (booking fee is excluded from surge — it's fixed)
-  const surgedFare = (config.baseFare + distanceCharge + timeCharge) * surge + config.bookingFee;
+let averageSpeed = 30;
 
-  // Enforce minimum fare floor
-  const finalFare = Math.max(config.minFare, surgedFare);
+if (sgHour >= 7 && sgHour < 9)
+  averageSpeed = 24;
+else if (sgHour >= 17 && sgHour < 20)
+  averageSpeed = 22;
+else if (sgHour >= 23 || sgHour < 1)
+  averageSpeed = 32;
+
+const estimatedRideMinutes =
+  Math.max(
+    4,
+    Math.round((distanceKm / averageSpeed) * 60)
+  );
+
+  const timeCharge =
+    estimatedRideMinutes * config.perMinRate;
+
+  let subtotal =
+    config.baseFare +
+    distanceCharge +
+    timeCharge;
+
+  subtotal *= surge;
+
+  subtotal += config.bookingFee;
+
+  // Long trip adjustment
+  if (distanceKm > 20)
+    subtotal *= 1.05;
+
+  if (distanceKm > 30)
+    subtotal *= 1.08;
+
+  // Short trip premium
+  if (distanceKm < 3)
+    subtotal += 1.5;
+
+  // Weekend evenings behave differently
+  const day = new Date(
+    new Date().toLocaleString(
+      "en-US",
+      { timeZone: "Asia/Singapore" }
+    )
+  ).getDay();
+
+  const isWeekend =
+    day === 0 || day === 6;
+
+if (
+  isWeekend &&
+  sgHour >= 18 &&
+  sgHour <= 23
+) {
+
+  if (providerKey === "grab")
+    subtotal *= 1.15;
+
+  else if (providerKey === "gojek")
+    subtotal *= 1.10;
+
+  else if (providerKey === "tada")
+    subtotal *= 1.05;
+
+  else if (providerKey === "ryde")
+    subtotal *= 1.07;
+
+  else
+    subtotal *= 1.08;
+}
+  // Calibration
+  subtotal *= behaviour.calibration;
+  // Off-peak promotion simulation
+if (
+  providerKey === "grab" &&
+  sgHour >= 10 &&
+  sgHour < 16
+) {
+  subtotal *= 0.96;
+}
+if (
+  providerKey === "grab" &&
+  sgHour >= 20 &&
+  sgHour < 23
+) {
+  subtotal *= 0.98;
+}
+if (
+  providerKey === "tada" &&
+  distanceKm > 20
+) {
+  subtotal *= 1.03;
+}
+
+  const finalFare =
+    Math.max(
+      config.minFare,
+      subtotal
+    );
 
   return {
-    estimatedFare: parseFloat(finalFare.toFixed(2)),
-    baseEtaMinutes: computeEta(providerKey, distanceKm, surge),
-    rideDurationMinutes: estimatedRideMinutes,
+    estimatedFare: parseFloat(
+      finalFare.toFixed(2)
+    ),
+    baseEtaMinutes: computeEta(
+      providerKey,
+      distanceKm,
+      surge
+    ),
+    rideDurationMinutes:
+      estimatedRideMinutes,
     surgeMultiplier: surge,
     breakdown: {
       baseFare: config.baseFare,
-      distanceCharge: parseFloat(distanceCharge.toFixed(2)),
-      timeCharge: parseFloat(timeCharge.toFixed(2)),
+      distanceCharge: parseFloat(
+        distanceCharge.toFixed(2)
+      ),
+      timeCharge: parseFloat(
+        timeCharge.toFixed(2)
+      ),
       bookingFee: config.bookingFee,
       surgeApplied: surge > 1.0,
     },
