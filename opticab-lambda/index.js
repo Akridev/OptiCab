@@ -30,7 +30,7 @@ const PROVIDER_BEHAVIOUR = {
   },
   cdg: {
     surgeBias: 0.85,
-    calibration: 1.04,
+    calibration: 0.96,
     offPeakDiscount: 1.00,
   },
 };
@@ -73,9 +73,9 @@ const FARE_CONFIG = {
   },
   cdg: {
     baseFare: 4.60,       // ComfortDelGro — premium metered-taxi heritage pricing
-    perKmRate: 1.30,
+    perKmRate: 1.15,
     perMinRate: 0.33,
-    bookingFee: 2.50,     // CDG charges a higher booking fee via app
+    bookingFee: 1.50,     // CDG charges a higher booking fee via app
     minFare: 9.00,
     baseEta: 3,
     surgeCapMultiplier: 1.5, // Traditional taxi — regulated, low surge ceiling
@@ -227,7 +227,12 @@ const estimatedRideMinutes =
     distanceCharge +
     timeCharge;
 
-  subtotal *= surge;
+  if(providerKey === "cdg"){
+    subtotal *= (1 + ((surge - 1) * 0.5));
+}
+else{
+    subtotal *= surge;
+}
 
   subtotal += config.bookingFee;
 
@@ -272,7 +277,7 @@ if (
     subtotal *= 1.07;
 
   else
-    subtotal *= 1.08;
+    subtotal *= 1.02;
 }
   // Calibration
   subtotal *= behaviour.calibration;
