@@ -3,7 +3,6 @@ import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator,
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Application from 'expo-application';
-import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView } from 'react-native-webview';
 
@@ -19,15 +18,6 @@ const RIDE_HISTORY_URL = 'https://opticab-backend.vercel.app/api/ride-history';
 
 // 1. Define all supported apps in Singapore
 const AVAILABLE_APPS = ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
-
-// Configure notifications
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
 
 // Helper: compute clock time from now + minutes offset (Singapore time)
 const getTimeString = (minutesFromNow) => {
@@ -73,7 +63,6 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const scrollViewRef = useRef(null);
   const [radarCountdown, setRadarCountdown] = useState(30);
-  const lastCheapestPrice = useRef(null);
 
   // Get or generate a stable device ID + load saved email
   useEffect(() => {
@@ -106,16 +95,6 @@ export default function App() {
     if (!userEmail) return;
     checkSubscriptionStatus();
   }, [userEmail]);
-
-  // Request notification permission
-  useEffect(() => {
-    (async () => {
-      const { status } = await Notifications.getPermissionsAsync();
-      if (status !== 'granted') {
-        await Notifications.requestPermissionsAsync();
-      }
-    })();
-  }, []);
 
   // Load saved routes and history when deviceId is ready
   useEffect(() => {
@@ -381,25 +360,6 @@ export default function App() {
         setTimeout(() => {
           scrollViewRef.current?.scrollToEnd({ animated: true });
         }, 300);
-      }
-      // Price drop notification (only during Fare-Watch background refreshes)
-      if (isBackgroundRefresh && data && !data.isInvalidInput && data.cheapest) {
-        const newPrice = data.cheapest.price;
-        if (lastCheapestPrice.current !== null && newPrice < lastCheapestPrice.current) {
-          const saved = (lastCheapestPrice.current - newPrice).toFixed(2);
-          Notifications.scheduleNotificationAsync({
-            content: {
-              title: '💰 Price dropped!',
-              body: `${data.cheapest.provider} is now $${newPrice.toFixed(2)} (saved $${saved})`,
-              sound: true,
-            },
-            trigger: null, // immediate
-          });
-        }
-        lastCheapestPrice.current = newPrice;
-      } else if (!isBackgroundRefresh && data && !data.isInvalidInput && data.cheapest) {
-        // Set initial price on first search
-        lastCheapestPrice.current = data.cheapest.price;
       }
       // Auto-save to history (non-blocking)
       if (!isBackgroundRefresh && data && !data.isInvalidInput && data.extractedRoute) {
