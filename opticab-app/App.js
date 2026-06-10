@@ -55,7 +55,7 @@ export default function App() {
   const [checkingSubscription, setCheckingSubscription] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentUrl, setPaymentUrl] = useState(null);
-  const [savedRoutes, setSavedRoutes] = useState([]);
+  const [savedRoutes, setSavedRoutes] = useState({ home: null, work: null });
   const [rideHistory, setRideHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const scrollViewRef = useRef(null);
@@ -159,7 +159,7 @@ export default function App() {
         body: JSON.stringify({ deviceId, action: 'get' }),
       });
       const data = await res.json();
-      setSavedRoutes(data.routes || []);
+      setSavedRoutes({ home: data.home || null, work: data.work || null });
     } catch {}
   };
 
@@ -180,39 +180,26 @@ export default function App() {
       Alert.alert('No route', 'Enter a destination first before saving.');
       return;
     }
-    Alert.alert('Save Route', 'Save this route as:', [
+    Alert.alert('Save Route', 'Save this as:', [
       { text: 'Cancel', style: 'cancel' },
-      { text: '🏠 Home', onPress: () => doSaveRoute('Home') },
-      { text: '💼 Work', onPress: () => doSaveRoute('Work') },
-      { text: '📍 Saved', onPress: () => doSaveRoute('Saved Route') },
+      { text: '🏠 Home', onPress: () => doSaveRoute('home') },
+      { text: '💼 Work', onPress: () => doSaveRoute('work') },
     ]);
   };
 
-  const doSaveRoute = async (name) => {
+  const doSaveRoute = async (type) => {
     try {
       const res = await fetch(SAVED_ROUTES_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, action: 'save', route: { name, prompt: promptText } }),
+        body: JSON.stringify({ deviceId, action: 'save', type, prompt: promptText }),
       });
       const data = await res.json();
-      if (data.routes) setSavedRoutes(data.routes);
-      Alert.alert('Saved!', `"${name}" added to your routes.`);
+      setSavedRoutes({ home: data.home || null, work: data.work || null });
+      Alert.alert('Saved!', `${type === 'home' ? 'Home' : 'Work'} route updated.`);
     } catch {
       Alert.alert('Error', 'Could not save route.');
     }
-  };
-
-  const deleteSavedRoute = async (routeId) => {
-    try {
-      const res = await fetch(SAVED_ROUTES_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, action: 'delete', routeId }),
-      });
-      const data = await res.json();
-      if (data.routes) setSavedRoutes(data.routes);
-    } catch {}
   };
 
   const saveToHistory = async (resultData) => {
@@ -436,23 +423,18 @@ export default function App() {
           />
 
           {/* Saved Routes Quick-Access */}
-          {savedRoutes.length > 0 && (
+          {(savedRoutes.home || savedRoutes.work) && (
             <View style={styles.savedRoutesRow}>
-              {savedRoutes.map((route) => (
-                <TouchableOpacity
-                  key={route.id}
-                  style={styles.savedRouteChip}
-                  onPress={() => { setPromptText(route.prompt); }}
-                  onLongPress={() => {
-                    Alert.alert('Delete Route', `Remove "${route.name}"?`, [
-                      { text: 'Cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => deleteSavedRoute(route.id) },
-                    ]);
-                  }}
-                >
-                  <Text style={styles.savedRouteText}>{route.name}</Text>
+              {savedRoutes.home && (
+                <TouchableOpacity style={styles.savedRouteChip} onPress={() => setPromptText(savedRoutes.home)}>
+                  <Text style={styles.savedRouteText}>🏠 Home</Text>
                 </TouchableOpacity>
-              ))}
+              )}
+              {savedRoutes.work && (
+                <TouchableOpacity style={styles.savedRouteChip} onPress={() => setPromptText(savedRoutes.work)}>
+                  <Text style={styles.savedRouteText}>💼 Work</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
