@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Alert, Keyboard, ScrollView, Platform, Modal } from 'react-native';
+import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Keyboard, ScrollView, Platform, Modal, Image, Animated, StatusBar } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView } from 'react-native-webview';
 
-// ─────────────────────────────────────────────
-// CONFIG — swap this to your live Vercel URL once deployed
-// ─────────────────────────────────────────────
+// ─── Config ───
 const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
 const CREATE_PAYMENT_URL = 'https://opticab-backend.vercel.app/api/create-payment';
 const PAYMENT_FORM_URL = 'https://opticab-backend.vercel.app/api/payment-form';
@@ -16,23 +14,33 @@ const SUBSCRIPTION_STATUS_URL = 'https://opticab-backend.vercel.app/api/subscrip
 const SAVED_ROUTES_URL = 'https://opticab-backend.vercel.app/api/saved-routes';
 const RIDE_HISTORY_URL = 'https://opticab-backend.vercel.app/api/ride-history';
 
-// 1. Define all supported apps in Singapore
+// ─── Theme ───
+const COLORS = {
+  teal: '#1D4E5F',
+  tealLight: '#2A6B7C',
+  gold: '#F2C94C',
+  goldDark: '#D4A93A',
+  bg: '#F5F7FA',
+  white: '#FFFFFF',
+  card: '#FFFFFF',
+  text: '#1D4E5F',
+  textLight: '#5A7A86',
+  textMuted: '#8FA8B2',
+  border: '#E2EBF0',
+  alert: '#FFF8E1',
+  alertBorder: '#F2C94C',
+  error: '#E74C3C',
+  success: '#27AE60',
+};
+
 const AVAILABLE_APPS = ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
 
-// Helper: compute clock time from now + minutes offset (Singapore time)
 const getTimeString = (minutesFromNow) => {
   const now = new Date();
   const futureTime = new Date(now.getTime() + minutesFromNow * 60 * 1000);
-  // Format in Singapore timezone
-  return futureTime.toLocaleTimeString('en-SG', { 
-    hour: '2-digit', 
-    minute: '2-digit', 
-    hour12: true,
-    timeZone: 'Asia/Singapore'
-  });
+  return futureTime.toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore' });
 };
 
-// Helper: extract display name from dropoff (handles both string and object from backend)
 const getDropoffName = (dropoff) => {
   if (!dropoff) return 'Unknown location';
   if (typeof dropoff === 'string') {
@@ -43,16 +51,64 @@ const getDropoffName = (dropoff) => {
   return dropoff.address || dropoff.name || 'Unknown location';
 };
 
+// ─── Custom Popup Component ───
+function CustomAlert({ visible, title, message, buttons, onClose }) {
+  if (!visible) return null;
+  return (
+    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
+      <View style={popupStyles.overlay}>
+        <View style={popupStyles.container}>
+          {title && <Text style={popupStyles.title}>{title}</Text>}
+          {message && <Text style={popupStyles.message}>{message}</Text>}
+          <View style={popupStyles.buttonRow}>
+            {(buttons || [{ text: 'OK', onPress: onClose }]).map((btn, i) => (
+              <TouchableOpacity
+                key={i}
+                style={[popupStyles.button, btn.style === 'cancel' ? popupStyles.buttonCancel : popupStyles.buttonPrimary]}
+                onPress={() => { onClose(); btn.onPress?.(); }}
+              >
+                <Text style={[popupStyles.buttonText, btn.style === 'cancel' && popupStyles.buttonTextCancel]}>{btn.text}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const popupStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(29,78,95,0.6)', justifyContent: 'center', padding: 28 },
+  container: { backgroundColor: '#fff', borderRadius: 16, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 10 },
+  title: { fontSize: 18, fontWeight: '800', color: COLORS.teal, marginBottom: 8 },
+  message: { fontSize: 14, color: COLORS.textLight, lineHeight: 20, marginBottom: 20 },
+  buttonRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  button: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  buttonPrimary: { backgroundColor: COLORS.teal },
+  buttonCancel: { backgroundColor: COLORS.border },
+  buttonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  buttonTextCancel: { color: COLORS.textLight },
+});
+
+// ─── Main App ───
 export default function App() {
+  // Splash
+  const [showSplash, setShowSplash] = useState(true);
+  const splashOpacity = useRef(new Animated.Value(1)).current;
+
+  // Alert state
+  const [alertConfig, setAlertConfig] = useState({ visible: false, title: '', message: '', buttons: null });
+  const showAlert = (title, message, buttons) => setAlertConfig({ visible: true, title, message, buttons });
+  const hideAlert = () => setAlertConfig(prev => ({ ...prev, visible: false }));
+
+  // Core state
   const [promptText, setPromptText] = useState('');
   const [loading, setLoading] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
   const [isAutoPolling, setIsAutoPolling] = useState(false);
   const [result, setResult] = useState(null);
   const [resolvedCoords, setResolvedCoords] = useState(null);
-  const [pickupIsCurrentLocation, setPickupIsCurrentLocation] = useState(false);
   const [deviceId, setDeviceId] = useState(null);
-  const [checkingSubscription, setCheckingSubscription] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentUrl, setPaymentUrl] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
@@ -63,132 +119,53 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const scrollViewRef = useRef(null);
   const [radarCountdown, setRadarCountdown] = useState(30);
+  const [selectedApps, setSelectedApps] = useState(AVAILABLE_APPS);
+  const [checkingSubscription, setCheckingSubscription] = useState(true);
+  const [pickupIsCurrentLocation, setPickupIsCurrentLocation] = useState(false);
 
-  // Get or generate a stable device ID + load saved email
+  // Splash animation
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      Animated.timing(splashOpacity, { toValue: 0, duration: 500, useNativeDriver: true }).start(() => setShowSplash(false));
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Device ID + email
   useEffect(() => {
     (async () => {
       try {
         let id = await AsyncStorage.getItem('opticab_device_id');
         if (!id) {
-          if (Platform.OS === 'android' && Application.getAndroidId) {
-            id = Application.getAndroidId();
-          }
-          if (!id) {
-            id = `opticab-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-          }
+          if (Platform.OS === 'android' && Application.getAndroidId) id = Application.getAndroidId();
+          if (!id) id = `opticab-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
           await AsyncStorage.setItem('opticab_device_id', id);
         }
         setDeviceId(id);
-
-        // Load saved email
         const savedEmail = await AsyncStorage.getItem('opticab_email');
         if (savedEmail) setUserEmail(savedEmail);
-      } catch (err) {
-        const fallbackId = `opticab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        setDeviceId(fallbackId);
-      }
+      } catch { setDeviceId(`opticab-${Date.now()}-${Math.random().toString(36).slice(2)}`); }
     })();
   }, []);
 
-  // Check subscription status on app load and when returning from Stripe
-  useEffect(() => {
-    if (!userEmail) return;
-    checkSubscriptionStatus();
-  }, [userEmail]);
-
-  // Load saved routes and history when deviceId is ready
-  useEffect(() => {
-    if (!deviceId) return;
-    loadSavedRoutes();
-    loadRideHistory();
-  }, [deviceId]);
+  // Check subscription
+  useEffect(() => { if (userEmail) checkSubscriptionStatus(); }, [userEmail]);
 
   const checkSubscriptionStatus = async () => {
-    if (!userEmail) {
-      setCheckingSubscription(false);
-      return;
-    }
+    if (!userEmail) { setCheckingSubscription(false); return; }
     try {
-      const response = await fetch(SUBSCRIPTION_STATUS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: userEmail }),
-      });
-      const data = await response.json();
+      const res = await fetch(SUBSCRIPTION_STATUS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: userEmail }) });
+      const data = await res.json();
       setIsPremium(data.isPremium === true);
-    } catch {} finally {
-      setCheckingSubscription(false);
-    }
+    } catch {} finally { setCheckingSubscription(false); }
   };
 
-  const handleUpgrade = async () => {
-    // Always show email prompt (user can confirm or change their email)
-    setShowEmailPrompt(true);
-  };
-
-  const promptEmailAndroid = () => {
-    if (userEmail) setEmailInput(userEmail);
-    setShowEmailPrompt(true);
-  };
-
-  const confirmEmailAndroid = async () => {
-    if (!emailInput || !emailInput.includes('@')) {
-      Alert.alert('Invalid', 'Please enter a valid email.');
-      return;
-    }
-    const email = emailInput.trim().toLowerCase();
-    setUserEmail(email);
-    await AsyncStorage.setItem('opticab_email', email);
-    setShowEmailPrompt(false);
-    Alert.alert('Loading...', 'Setting up payment...');
-    await startPayment(email);
-  };
-
-  const startPayment = async (email) => {
-    try {
-      // First check if already premium
-      const statusRes = await fetch(SUBSCRIPTION_STATUS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const statusData = await statusRes.json();
-      if (statusData.isPremium) {
-        setIsPremium(true);
-        Alert.alert('Already Premium!', 'Your subscription is active. Fare-Watch is unlocked.');
-        return;
-      }
-    } catch {
-      // Status check failed — proceed to payment anyway
-    }
-
-    // Not premium — start payment
-    try {
-      const response = await fetch(CREATE_PAYMENT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const data = await response.json();
-      if (data.clientSecret && data.publishableKey) {
-        const url = `${PAYMENT_FORM_URL}?clientSecret=${encodeURIComponent(data.clientSecret)}&publishableKey=${encodeURIComponent(data.publishableKey)}`;
-        setPaymentUrl(url);
-        setShowPaymentModal(true);
-      } else {
-        Alert.alert('Payment Error', data.details || data.error || 'Could not start payment.');
-      }
-    } catch (err) {
-      Alert.alert('Network Error', 'Please check your connection and try again.');
-    }
-  };
+  // Load routes + history
+  useEffect(() => { if (deviceId) { loadSavedRoutes(); loadRideHistory(); } }, [deviceId]);
 
   const loadSavedRoutes = async () => {
     try {
-      const res = await fetch(SAVED_ROUTES_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, action: 'get' }),
-      });
+      const res = await fetch(SAVED_ROUTES_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, action: 'get' }) });
       const data = await res.json();
       setSavedRoutes({ home: data.home || null, work: data.work || null });
     } catch {}
@@ -196,22 +173,15 @@ export default function App() {
 
   const loadRideHistory = async () => {
     try {
-      const res = await fetch(RIDE_HISTORY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, action: 'get' }),
-      });
+      const res = await fetch(RIDE_HISTORY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, action: 'get' }) });
       const data = await res.json();
       setRideHistory(data.history || []);
     } catch {}
   };
 
-  const saveCurrentRoute = async () => {
-    if (!deviceId || !promptText.trim()) {
-      Alert.alert('No route', 'Enter a destination first before saving.');
-      return;
-    }
-    Alert.alert('Save Route', 'Save this as:', [
+  const saveCurrentRoute = () => {
+    if (!deviceId || !promptText.trim()) { showAlert('No Route', 'Enter a destination first.'); return; }
+    showAlert('Save Route', 'Save this as:', [
       { text: 'Cancel', style: 'cancel' },
       { text: '🏠 Home', onPress: () => doSaveRoute('home') },
       { text: '💼 Work', onPress: () => doSaveRoute('work') },
@@ -220,74 +190,43 @@ export default function App() {
 
   const doSaveRoute = async (type) => {
     try {
-      const res = await fetch(SAVED_ROUTES_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, action: 'save', type, prompt: promptText }),
-      });
+      const res = await fetch(SAVED_ROUTES_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, action: 'save', type, prompt: promptText }) });
       const data = await res.json();
       setSavedRoutes({ home: data.home || null, work: data.work || null });
-      Alert.alert('Saved!', `${type === 'home' ? 'Home' : 'Work'} route updated.`);
-    } catch {
-      Alert.alert('Error', 'Could not save route.');
-    }
+      showAlert('Saved!', `${type === 'home' ? 'Home' : 'Work'} route updated.`);
+    } catch { showAlert('Error', 'Could not save route.'); }
   };
 
   const saveToHistory = async (resultData) => {
     if (!deviceId || !resultData?.extractedRoute) return;
     try {
-      await fetch(RIDE_HISTORY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId,
-          action: 'save',
-          ride: {
-            prompt: promptText,
-            cheapestProvider: resultData.cheapest?.provider,
-            cheapestPrice: resultData.cheapest?.price,
-          },
-        }),
-      });
-      // Refresh history after save
+      await fetch(RIDE_HISTORY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, action: 'save', ride: { prompt: promptText, cheapestProvider: resultData.cheapest?.provider, cheapestPrice: resultData.cheapest?.price } }) });
       loadRideHistory();
     } catch {}
   };
 
+  // Payment
+  const handleUpgrade = () => setShowEmailPrompt(true);
+
   const handlePaymentMessage = (event) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.status === 'success') {
-        setShowPaymentModal(false);
-        setIsPremium(true);
-        Alert.alert('🎉 Welcome to Premium!', 'Fare-Watch is now unlocked.');
-      }
+      if (data.status === 'success') { setShowPaymentModal(false); setIsPremium(true); showAlert('🎉 Welcome to Premium!', 'Fare-Watch is now unlocked.'); }
     } catch {}
   };
 
-  // 2. Track selected apps (Default: all checked)
-  const [selectedApps, setSelectedApps] = useState(AVAILABLE_APPS);
-
-  // Toggle helper for the checkbox filters
   const toggleAppSelection = (appName) => {
     if (selectedApps.includes(appName)) {
-      // Don't let them uncheck everything
       if (selectedApps.length === 1) return;
       setSelectedApps(selectedApps.filter(app => app !== appName));
-    } else {
-      setSelectedApps([...selectedApps, appName]);
-    }
+    } else { setSelectedApps([...selectedApps, appName]); }
   };
 
-  // 3. Unified Search Function — wrapped in useCallback to stabilise the radar useEffect dep
+  // Search
   const handleSearchCommute = useCallback(async (isBackgroundRefresh = false) => {
     if (!promptText.trim()) return;
     if (!isBackgroundRefresh) setLoading(true);
-
     try {
-      // Check if user specified a "from" location — if so, we don't need GPS
-      // Detects: "from X to Y", "643658 to 650350", "bukit batok to orchard"
-      // But NOT: "take me to orchard" (no explicit pickup)
       const hasFromKeyword = /\bfrom\b/i.test(promptText);
       const hasTwoPostalCodes = (promptText.match(/\b\d{6}\b/g) || []).length >= 2;
       const hasExplicitPickupBeforeTo = /^[^]*?\S+\s+to\s+/i.test(promptText) && !/\b(take|bring|go|get)\s+(me\s+)?to\b/i.test(promptText);
@@ -297,343 +236,214 @@ export default function App() {
       let coords = null;
 
       if (!userSpecifiedPickup) {
-        // Check existing permission status first — don't bug the user if already granted
         let { status } = await Location.getForegroundPermissionsAsync();
-
         if (status !== 'granted') {
-          // Only show info popup if permission hasn't been granted yet
-          const proceed = await new Promise((resolve) => {
-            Alert.alert(
-              'Location Permission Needed',
-              'OptiCab needs your current location to detect your pickup point. Without it, we cannot search for fares.\n\nPlease allow location access when prompted.',
-              [
-                { text: 'Cancel', onPress: () => resolve(false), style: 'cancel' },
-                { text: 'OK, Continue', onPress: () => resolve(true) },
-              ]
-            );
-          });
-
-          if (!proceed) {
-            setLoading(false);
-            return;
-          }
-
-          // Now request permission
           const permResult = await Location.requestForegroundPermissionsAsync();
           status = permResult.status;
-
           if (status !== 'granted') {
-            Alert.alert(
-              'Location Required',
-              'OptiCab cannot detect your pickup location without GPS permission. Please specify a "from" location in your message (e.g., "from Bukit Batok to Orchard") or enable location access in your device settings.',
-              [{ text: 'OK' }]
-            );
+            showAlert('Location Required', 'Please specify a "from" location or enable GPS.');
             setLoading(false);
             return;
           }
         }
-
-        // Permission granted — get location silently
         let loc = await Location.getCurrentPositionAsync({});
         coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
         locationContext = `${coords.lat}, ${coords.lng}`;
       }
 
-      // Store live coords so deep links can use them as pickup point
       if (coords) setResolvedCoords(coords);
       setPickupIsCurrentLocation(!userSpecifiedPickup);
 
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userPrompt: promptText,
-          currentGpsLocation: locationContext, // null if user specified pickup in text
-          allowedApps: selectedApps,
-        }),
+        body: JSON.stringify({ userPrompt: promptText, currentGpsLocation: locationContext, allowedApps: selectedApps }),
       });
-
       const data = await response.json();
       setResult(data);
-      // Auto-scroll to results
       if (!isBackgroundRefresh && data && !data.isInvalidInput) {
-        setTimeout(() => {
-          scrollViewRef.current?.scrollToEnd({ animated: true });
-        }, 300);
-      }
-      // Auto-save to history (non-blocking)
-      if (!isBackgroundRefresh && data && !data.isInvalidInput && data.extractedRoute) {
+        setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 300);
         saveToHistory(data);
       }
     } catch (err) {
-      console.error(err);
-      if (!isBackgroundRefresh) {
-        Alert.alert('OptiCab Error', 'Failed to communicate with the AI Routing Agent.');
-      }
-    } finally {
-      if (!isBackgroundRefresh) setLoading(false);
-    }
-  }, [promptText, selectedApps]); // useCallback deps — radar closure always gets fresh values
+      if (!isBackgroundRefresh) showAlert('Error', 'Failed to communicate with OptiCab.');
+    } finally { if (!isBackgroundRefresh) setLoading(false); }
+  }, [promptText, selectedApps]);
 
-  // 4. Premium Automated 30-Second Background Radar Loop
+  // Radar
   useEffect(() => {
     if (!isPremium || !isAutoPolling || !result) return;
-
     setRadarCountdown(30);
-    const radarTimer = setInterval(() => {
-      handleSearchCommute(true);
-      setRadarCountdown(30);
-    }, 30000);
-
-    const countdownTimer = setInterval(() => {
-      setRadarCountdown(prev => prev > 0 ? prev - 1 : 30);
-    }, 1000);
-
+    const radarTimer = setInterval(() => { handleSearchCommute(true); setRadarCountdown(30); }, 30000);
+    const countdownTimer = setInterval(() => { setRadarCountdown(prev => prev > 0 ? prev - 1 : 30); }, 1000);
     return () => { clearInterval(radarTimer); clearInterval(countdownTimer); };
   }, [isPremium, isAutoPolling, result, handleSearchCommute]);
 
-  // 5. Deep Linking — uses live GPS coords as pickup, backend-resolved dropoff name
+  // Deep linking
   const launchDeepLink = (provider, dropoffName) => {
-    // Use live GPS if available, fall back to Geylang
     const pickupLat = resolvedCoords?.lat ?? 1.3048;
     const pickupLng = resolvedCoords?.lng ?? 103.8318;
-
-    // Dropoff: backend returns a place name string — encode it for URI use
-    // Provider apps resolve the name on their end; coordinates used where available
     const encodedDropoff = encodeURIComponent(dropoffName || '');
-
     let url = '';
-
     switch (provider.toLowerCase()) {
-      case 'grab':
-        url = `grab://open?screenType=BOOKING&pickupLat=${pickupLat}&pickupLng=${pickupLng}&dropoffQuery=${encodedDropoff}`;
-        break;
-      case 'tada':
-        url = `tada://booking?pickup_lat=${pickupLat}&pickup_lng=${pickupLng}&dropoff_query=${encodedDropoff}`;
-        break;
-      case 'gojek':
-        url = `gojek://goforward?service=GO_CAR&pickup=${pickupLat},${pickupLng}&destination_query=${encodedDropoff}`;
-        break;
-      case 'ryde':
-        url = `ryde://booking?pickuplat=${pickupLat}&pickuplng=${pickupLng}&destination=${encodedDropoff}`;
-        break;
-      case 'comfortdelgro':
-        url = `cdgmobility://booking?pickup_lat=${pickupLat}&pickup_lng=${pickupLng}&dropoff_query=${encodedDropoff}`;
-        break;
-      case 'walk (healthy option)':
-        // Walk card: open Apple/Google Maps walking directions instead
-        url = `https://www.google.com/maps/dir/?api=1&origin=${pickupLat},${pickupLng}&destination=${encodedDropoff}&travelmode=walking`;
-        break;
-      default:
-        return;
+      case 'grab': url = `grab://open?screenType=BOOKING&pickupLat=${pickupLat}&pickupLng=${pickupLng}&dropoffQuery=${encodedDropoff}`; break;
+      case 'tada': url = `tada://booking?pickup_lat=${pickupLat}&pickup_lng=${pickupLng}&dropoff_query=${encodedDropoff}`; break;
+      case 'gojek': url = `gojek://goforward?service=GO_CAR&pickup=${pickupLat},${pickupLng}&destination_query=${encodedDropoff}`; break;
+      case 'ryde': url = `ryde://booking?pickuplat=${pickupLat}&pickuplng=${pickupLng}&destination=${encodedDropoff}`; break;
+      case 'comfortdelgro': url = `cdgmobility://booking?pickup_lat=${pickupLat}&pickup_lng=${pickupLng}&dropoff_query=${encodedDropoff}`; break;
+      case 'walk (healthy option)': url = `https://www.google.com/maps/dir/?api=1&origin=${pickupLat},${pickupLng}&destination=${encodedDropoff}&travelmode=walking`; break;
+      default: return;
     }
-
-    Linking.openURL(url).catch(() => {
-      Alert.alert('App Missing', `${provider} is not installed on this device.`);
-    });
+    Linking.openURL(url).catch(() => showAlert('App Missing', `${provider} is not installed.`));
   };
+
+  // ─── RENDER ───
+  if (showSplash) {
+    return (
+      <Animated.View style={[styles.splash, { opacity: splashOpacity }]}>  
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.teal} />
+        <Image source={require('./assets/logo.png')} style={styles.splashLogo} resizeMode="contain" />
+      </Animated.View>
+    );
+  }
 
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
         <ScrollView showsVerticalScrollIndicator={false} ref={scrollViewRef}>
-          <Text style={styles.title}>OptiCab</Text>
-          <Text style={styles.subtitle}>Conversational Commute Assistant</Text>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.title}>OptiCab</Text>
+            <Text style={styles.subtitle}>Cheap & Quick</Text>
+            {isPremium && <Text style={styles.premiumBadge}>✓ Premium</Text>}
+          </View>
 
-          {/* Input Form Box */}
+          {/* Input */}
           <TextInput
             style={styles.input}
-            placeholder="Where to? (e.g., Take me to Orchard road, avoid heavy jams)"
-            placeholderTextColor="#999"
+            placeholder="Where to? (e.g., Take me to Orchard Road)"
+            placeholderTextColor={COLORS.textMuted}
             value={promptText}
             onChangeText={setPromptText}
-            onSubmitEditing={() => {
-              Keyboard.dismiss();
-              handleSearchCommute(false);
-            }}
+            onSubmitEditing={() => { Keyboard.dismiss(); handleSearchCommute(false); }}
             returnKeyType="search"
           />
 
-          {/* Saved Routes Quick-Access */}
-          {(savedRoutes.home || savedRoutes.work) && (
-            <View style={styles.savedRoutesRow}>
-              {savedRoutes.home && (
-                <TouchableOpacity style={styles.savedRouteChip} onPress={() => setPromptText(savedRoutes.home)}>
-                  <Text style={styles.savedRouteText}>🏠 Home</Text>
-                </TouchableOpacity>
-              )}
-              {savedRoutes.work && (
-                <TouchableOpacity style={styles.savedRouteChip} onPress={() => setPromptText(savedRoutes.work)}>
-                  <Text style={styles.savedRouteText}>💼 Work</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-
-          {/* Save Route + History buttons */}
-          <View style={styles.quickActionsRow}>
-            {promptText.trim().length > 0 && (
-              <TouchableOpacity style={styles.saveRouteBtn} onPress={saveCurrentRoute}>
-                <Text style={styles.saveRouteBtnText}>💾 Save Route</Text>
+          {/* Quick Access */}
+          <View style={styles.quickRow}>
+            {savedRoutes.home && (
+              <TouchableOpacity style={styles.quickChip} onPress={() => setPromptText(savedRoutes.home)}>
+                <Text style={styles.quickChipText}>🏠 Home</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.historyBtn} onPress={() => setShowHistory(!showHistory)}>
-              <Text style={styles.historyBtnText}>{showHistory ? '✕ Hide History' : '📋 History'}</Text>
+            {savedRoutes.work && (
+              <TouchableOpacity style={styles.quickChip} onPress={() => setPromptText(savedRoutes.work)}>
+                <Text style={styles.quickChipText}>💼 Work</Text>
+              </TouchableOpacity>
+            )}
+            {promptText.trim().length > 0 && (
+              <TouchableOpacity style={styles.quickChipOutline} onPress={saveCurrentRoute}>
+                <Text style={styles.quickChipOutlineText}>💾 Save</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.quickChipOutline} onPress={() => setShowHistory(!showHistory)}>
+              <Text style={styles.quickChipOutlineText}>{showHistory ? '✕' : '📋'} History</Text>
             </TouchableOpacity>
           </View>
 
-          {/* History Panel */}
+          {/* History */}
           {showHistory && (
             <View style={styles.historyPanel}>
-              <Text style={styles.historyTitle}>Recent Searches</Text>
-              {rideHistory.length === 0 ? (
-                <Text style={styles.historyMeta}>No searches yet.</Text>
-              ) : (
+              {rideHistory.length === 0 ? <Text style={styles.historyMeta}>No searches yet.</Text> :
                 rideHistory.slice(0, 2).map((ride, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={styles.historyItem}
-                    onPress={() => { setPromptText(ride.prompt); setShowHistory(false); }}
-                  >
+                  <TouchableOpacity key={idx} style={styles.historyItem} onPress={() => { setPromptText(ride.prompt); setShowHistory(false); }}>
                     <Text style={styles.historyRoute}>{ride.prompt}</Text>
-                    {ride.cheapestProvider && (
-                      <Text style={styles.historyMeta}>{ride.cheapestProvider} ${ride.cheapestPrice?.toFixed(2)}</Text>
-                    )}
+                    {ride.cheapestProvider && <Text style={styles.historyMeta}>{ride.cheapestProvider} ${ride.cheapestPrice?.toFixed(2)}</Text>}
                   </TouchableOpacity>
                 ))
-              )}
+              }
             </View>
           )}
 
-          {/* Checkbox Filter Matrix */}
-          <Text style={styles.filterTitle}>Select Apps to Compare:</Text>
-          <View style={styles.checkboxContainer}>
+          {/* App Filter */}
+          <Text style={styles.filterTitle}>Compare:</Text>
+          <View style={styles.checkboxRow}>
             {AVAILABLE_APPS.map((app) => {
               const isChecked = selectedApps.includes(app);
               return (
-                <TouchableOpacity
-                  key={app}
-                  style={[styles.checkbox, isChecked ? styles.checkboxChecked : styles.checkboxUnchecked]}
-                  onPress={() => toggleAppSelection(app)}
-                >
-                  <Text style={[styles.checkboxText, isChecked ? styles.textChecked : styles.textUnchecked]}>
-                    {isChecked ? '✓ ' : '+ '} {app}
-                  </Text>
+                <TouchableOpacity key={app} style={[styles.chip, isChecked ? styles.chipActive : styles.chipInactive]} onPress={() => toggleAppSelection(app)}>
+                  <Text style={[styles.chipText, isChecked ? styles.chipTextActive : styles.chipTextInactive]}>{isChecked ? '✓' : '+'} {app}</Text>
                 </TouchableOpacity>
               );
             })}
           </View>
 
-          {/* Actions Button Panel */}
-          <View style={styles.buttonRow}>
-            <TouchableOpacity
-              style={styles.submitBtn}
-              onPress={() => { Keyboard.dismiss(); handleSearchCommute(false); }}
-            >
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Search Fares</Text>}
+          {/* Action Buttons */}
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={styles.searchBtn} onPress={() => { Keyboard.dismiss(); handleSearchCommute(false); }}>
+              {loading ? <ActivityIndicator color={COLORS.teal} /> : <Text style={styles.searchBtnText}>Search Fares</Text>}
             </TouchableOpacity>
-
             {isPremium && result && (
-              <TouchableOpacity
-                style={[styles.radarBtn, isAutoPolling ? styles.radarActive : styles.radarInactive]}
-                onPress={() => setIsAutoPolling(!isAutoPolling)}
-              >
-                <Text style={isAutoPolling ? styles.radarBtnTextActive : styles.radarBtnTextInactive}>
-                  {isAutoPolling ? `📡 Refreshing in ${radarCountdown}s` : '🛰️ Fare-Watch'}
+              <TouchableOpacity style={[styles.radarBtn, isAutoPolling && styles.radarBtnActive]} onPress={() => setIsAutoPolling(!isAutoPolling)}>
+                <Text style={[styles.radarBtnText, isAutoPolling && styles.radarBtnTextActive]}>
+                  {isAutoPolling ? `📡 ${radarCountdown}s` : '🛰️ Fare-Watch'}
                 </Text>
               </TouchableOpacity>
             )}
           </View>
 
-          {/* Invalid input or error warning block */}
+          {/* Error / Invalid */}
           {result && (result.isInvalidInput || result.error) && (
             <View style={styles.alertBox}>
-              <Text style={[styles.alertText, { fontWeight: 'bold' }]}>{result.message || result.error || 'Something went wrong. Please try again.'}</Text>
+              <Text style={styles.alertText}>{result.message || result.error || 'Something went wrong.'}</Text>
             </View>
           )}
 
-          {/* Core comparison layout */}
+          {/* Results */}
           {result && !result.isInvalidInput && result.extractedRoute && (
             <View style={{ marginBottom: 100 }}>
-              <View style={styles.routeConfirm}>
-                <Text style={styles.confirmText}>{result.extractedRoute.pickupIsCurrentLocation ? '📌 Current: ' : '📍 From: '}{getDropoffName(result.extractedRoute.pickup)}</Text>
-                <Text style={styles.confirmText}>🏁 To: {getDropoffName(result.extractedRoute.dropoff)}</Text>
+              <View style={styles.routeBox}>
+                <Text style={styles.routeText}>{result.extractedRoute.pickupIsCurrentLocation ? '📌 Current: ' : '📍 From: '}{getDropoffName(result.extractedRoute.pickup)}</Text>
+                <Text style={styles.routeText}>🏁 To: {getDropoffName(result.extractedRoute.dropoff)}</Text>
               </View>
 
               {result.alerts?.length > 0 && (
                 <View style={styles.alertBox}>
-                  <Text style={styles.alertTitle}>⚠️ Live Status Advisory</Text>
-                  {result.alerts.map((alert, idx) => (
-                    <Text key={idx} style={styles.alertText}>• {alert}</Text>
-                  ))}
+                  <Text style={styles.alertTitle}>⚠️ Live Advisory</Text>
+                  {result.alerts.map((alert, idx) => <Text key={idx} style={styles.alertText}>• {alert}</Text>)}
                 </View>
               )}
 
               {result.cheapest.provider === result.fastest.provider ? (
-                /* Combined card — same provider is both cheapest and fastest */
-                <View style={styles.gridSingle}>
-                  <TouchableOpacity
-                    style={styles.cardFull}
-                    onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}
-                  >
-                    <Text style={styles.cardHeader}>💰⚡ CHEAPEST & FASTEST</Text>
-                    <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
-                    <Text style={styles.provider}>{result.cheapest.provider}</Text>
-                    {result.cheapest.carType && (
-                      <Text style={styles.carType}>🚘 {result.cheapest.carType}</Text>
-                    )}
-                    {result.cheapest.eta != null && (
-                      <Text style={styles.timing}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
-                    )}
-                    {result.cheapest.rideDuration != null && (
-                      <Text style={styles.timing}>📍 Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
-                    )}
-                    <Text style={styles.tapToOpen}>
-                      {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps →' : 'Tap to open app →'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity style={styles.cardFull} onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}>
+                  <Text style={styles.cardLabel}>💰⚡ CHEAPEST & FASTEST</Text>
+                  <Text style={styles.cardPrice}>${result.cheapest.price.toFixed(2)}</Text>
+                  <Text style={styles.cardProvider}>{result.cheapest.provider}</Text>
+                  {result.cheapest.carType && <Text style={styles.cardCarType}>🚘 {result.cheapest.carType}</Text>}
+                  {result.cheapest.eta != null && <Text style={styles.cardTiming}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>}
+                  {result.cheapest.rideDuration != null && <Text style={styles.cardTiming}>📍 Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>}
+                  <Text style={styles.cardCta}>{result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps →' : 'Tap to book →'}</Text>
+                </TouchableOpacity>
               ) : (
-                /* Two separate cards */
-                <View style={styles.grid}>
-                  <TouchableOpacity
-                    style={styles.card}
-                    onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}
-                  >
-                    <Text style={styles.cardHeader}>💰 CHEAPEST</Text>
-                    <Text style={styles.price}>${result.cheapest.price.toFixed(2)}</Text>
-                    <Text style={styles.provider}>{result.cheapest.provider}</Text>
-                    {result.cheapest.carType && (
-                      <Text style={styles.carType}>🚘 {result.cheapest.carType}</Text>
-                    )}
-                    {result.cheapest.eta != null && (
-                      <Text style={styles.timing}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>
-                    )}
-                    {result.cheapest.rideDuration != null && (
-                      <Text style={styles.timing}>📍 Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>
-                    )}
-                    <Text style={styles.tapToOpen}>
-                      {result.cheapest.provider.toLowerCase().includes('walk') ? 'Open Maps →' : 'Tap to open app →'}
-                    </Text>
+                <View style={styles.cardRow}>
+                  <TouchableOpacity style={styles.card} onPress={() => launchDeepLink(result.cheapest.provider, getDropoffName(result.extractedRoute.dropoff))}>
+                    <Text style={styles.cardLabel}>💰 CHEAPEST</Text>
+                    <Text style={styles.cardPrice}>${result.cheapest.price.toFixed(2)}</Text>
+                    <Text style={styles.cardProvider}>{result.cheapest.provider}</Text>
+                    {result.cheapest.carType && <Text style={styles.cardCarType}>🚘 {result.cheapest.carType}</Text>}
+                    {result.cheapest.eta != null && <Text style={styles.cardTiming}>🚗 Pickup: {result.cheapest.eta} min ({getTimeString(result.cheapest.eta)})</Text>}
+                    {result.cheapest.rideDuration != null && <Text style={styles.cardTiming}>📍 Dropoff: {result.cheapest.rideDuration} min ({getTimeString(result.cheapest.eta + result.cheapest.rideDuration)})</Text>}
+                    <Text style={styles.cardCta}>{result.cheapest.provider.toLowerCase().includes('walk') ? 'Maps →' : 'Book →'}</Text>
                   </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.card}
-                    onPress={() => launchDeepLink(result.fastest.provider, getDropoffName(result.extractedRoute.dropoff))}
-                  >
-                    <Text style={styles.cardHeader}>⚡ FASTEST</Text>
-                    <Text style={styles.price}>${result.fastest.price.toFixed(2)}</Text>
-                    <Text style={styles.provider}>{result.fastest.provider}</Text>
-                    {result.fastest.carType && (
-                      <Text style={styles.carType}>🚘 {result.fastest.carType}</Text>
-                    )}
-                    {result.fastest.eta != null && (
-                      <Text style={styles.timing}>🚗 Pickup: {result.fastest.eta} min ({getTimeString(result.fastest.eta)})</Text>
-                    )}
-                    {result.fastest.rideDuration != null && (
-                      <Text style={styles.timing}>📍 Dropoff: {result.fastest.rideDuration} min ({getTimeString(result.fastest.eta + result.fastest.rideDuration)})</Text>
-                    )}
-                    <Text style={styles.tapToOpen}>Tap to open app →</Text>
+                  <TouchableOpacity style={styles.card} onPress={() => launchDeepLink(result.fastest.provider, getDropoffName(result.extractedRoute.dropoff))}>
+                    <Text style={styles.cardLabel}>⚡ FASTEST</Text>
+                    <Text style={styles.cardPrice}>${result.fastest.price.toFixed(2)}</Text>
+                    <Text style={styles.cardProvider}>{result.fastest.provider}</Text>
+                    {result.fastest.carType && <Text style={styles.cardCarType}>🚘 {result.fastest.carType}</Text>}
+                    {result.fastest.eta != null && <Text style={styles.cardTiming}>🚗 Pickup: {result.fastest.eta} min ({getTimeString(result.fastest.eta)})</Text>}
+                    {result.fastest.rideDuration != null && <Text style={styles.cardTiming}>📍 Dropoff: {result.fastest.rideDuration} min ({getTimeString(result.fastest.eta + result.fastest.rideDuration)})</Text>}
+                    <Text style={styles.cardCta}>Book →</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -641,22 +451,25 @@ export default function App() {
           )}
         </ScrollView>
 
-        {/* Stripe Paywall Footer */}
+        {/* Upgrade Footer */}
         {!isPremium && (
           <TouchableOpacity style={styles.upgradeBtn} onPress={handleUpgrade}>
-            <Text style={styles.upgradeText}>👑 Upgrade to unlock 30s Auto-Polling Radar</Text>
+            <Text style={styles.upgradeBtnText}>👑 Upgrade to Fare-Watch</Text>
           </TouchableOpacity>
         )}
 
-        {/* Email Prompt Modal (Android) */}
+        {/* Custom Alert */}
+        <CustomAlert {...alertConfig} onClose={hideAlert} />
+
+        {/* Email Modal */}
         {showEmailPrompt && (
           <Modal visible={true} transparent animationType="fade" onRequestClose={() => setShowEmailPrompt(false)}>
-            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }}>
-              <View style={{ backgroundColor: '#fff', borderRadius: 14, padding: 24 }}>
-                <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Enter Email</Text>
-                <Text style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>Your email is used to manage your subscription.</Text>
+            <View style={{ flex: 1, backgroundColor: 'rgba(29,78,95,0.6)', justifyContent: 'center', padding: 24 }}>
+              <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24 }}>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.teal, marginBottom: 8 }}>Enter Email</Text>
+                <Text style={{ fontSize: 13, color: COLORS.textLight, marginBottom: 16 }}>Used to manage your subscription.</Text>
                 <TextInput
-                  style={{ borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 12, fontSize: 15, marginBottom: 16 }}
+                  style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 16 }}
                   placeholder="you@email.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -666,40 +479,26 @@ export default function App() {
                 <TouchableOpacity
                   onPress={async () => {
                     Keyboard.dismiss();
-                    if (!emailInput || !emailInput.includes('@')) {
-                      Alert.alert('Invalid', 'Please enter a valid email.');
-                      return;
-                    }
+                    if (!emailInput || !emailInput.includes('@')) { showAlert('Invalid', 'Please enter a valid email.'); return; }
                     const email = emailInput.trim().toLowerCase();
                     setUserEmail(email);
                     AsyncStorage.setItem('opticab_email', email);
                     setShowEmailPrompt(false);
                     try {
-                      const response = await fetch(CREATE_PAYMENT_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email }),
-                      });
+                      const response = await fetch(CREATE_PAYMENT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
                       const data = await response.json();
                       if (data.clientSecret && data.publishableKey) {
                         setPaymentUrl(`${PAYMENT_FORM_URL}?clientSecret=${encodeURIComponent(data.clientSecret)}&publishableKey=${encodeURIComponent(data.publishableKey)}`);
                         setShowPaymentModal(true);
-                      } else {
-                        Alert.alert('Payment Error', data.details || data.error || 'Failed');
-                      }
-                    } catch (e) {
-                      Alert.alert('Network Error', e.message);
-                    }
+                      } else { showAlert('Error', data.details || 'Payment setup failed.'); }
+                    } catch (e) { showAlert('Network Error', e.message); }
                   }}
-                  style={{ backgroundColor: '#111', padding: 14, borderRadius: 8, alignItems: 'center', marginBottom: 10 }}
+                  style={{ backgroundColor: COLORS.gold, padding: 14, borderRadius: 10, alignItems: 'center', marginBottom: 10 }}
                 >
-                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Continue</Text>
+                  <Text style={{ color: COLORS.teal, fontWeight: '800', fontSize: 16 }}>Continue</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => setShowEmailPrompt(false)}
-                  style={{ padding: 10, alignItems: 'center' }}
-                >
-                  <Text style={{ color: '#666', fontSize: 14 }}>Cancel</Text>
+                <TouchableOpacity onPress={() => setShowEmailPrompt(false)} style={{ padding: 10, alignItems: 'center' }}>
+                  <Text style={{ color: COLORS.textMuted }}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -707,25 +506,14 @@ export default function App() {
         )}
 
         {/* Payment Modal */}
-        <Modal
-          visible={showPaymentModal}
-          animationType="slide"
-          presentationStyle="pageSheet"
-          onRequestClose={() => { setShowPaymentModal(false); setIsPremium(true); }}
-        >
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#FAFAFA' }}>
+        <Modal visible={showPaymentModal} animationType="slide" onRequestClose={() => { setShowPaymentModal(false); setIsPremium(true); }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={() => { setShowPaymentModal(false); setIsPremium(true); }}>
                 <Text style={styles.modalClose}>✕ Close</Text>
               </TouchableOpacity>
             </View>
-            {paymentUrl && (
-              <WebView
-                source={{ uri: paymentUrl }}
-                onMessage={handlePaymentMessage}
-                style={{ flex: 1 }}
-              />
-            )}
+            {paymentUrl && <WebView source={{ uri: paymentUrl }} onMessage={handlePaymentMessage} style={{ flex: 1 }} />}
           </SafeAreaView>
         </Modal>
       </SafeAreaView>
@@ -733,314 +521,56 @@ export default function App() {
   );
 }
 
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FAFAFA',
-    paddingHorizontal: 16,
-    paddingTop: 40,
-  },
-  title: {
-    fontSize: 34,
-    fontWeight: '900',
-    textAlign: 'center',
-    color: '#111',
-  },
-  subtitle: {
-    fontSize: 13,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-    marginTop: 4,
-  },
-  input: {
-    backgroundColor: '#FFF',
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 15,
-    color: '#111',
-  },
-  filterTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  checkboxContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 4,
-  },
-  checkbox: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-  },
-  checkboxUnchecked: {
-    backgroundColor: '#FFF',
-    borderColor: '#DDD',
-  },
-  checkboxChecked: {
-    backgroundColor: '#111',
-    borderColor: '#111',
-  },
-  checkboxText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  textChecked: {
-    color: '#FFF',
-  },
-  textUnchecked: {
-    color: '#555',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
-    marginBottom: 16,
-  },
-  submitBtn: {
-    backgroundColor: '#111',
-    flex: 1,
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnText: {
-    color: '#FFF',
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  radarBtn: {
-    flex: 1,
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  radarInactive: {
-    backgroundColor: '#E8F0FE',
-    borderWidth: 1,
-    borderColor: '#1A73E8',
-  },
-  radarActive: {
-    backgroundColor: '#1A73E8',
-  },
-  // Split radarBtnText into two static styles — functions in StyleSheet aren't valid
-  radarBtnTextActive: {
-    fontWeight: '700',
-    fontSize: 14,
-    color: '#FFF',
-  },
-  radarBtnTextInactive: {
-    fontWeight: '700',
-    fontSize: 14,
-    color: '#1A73E8',
-  },
-  routeConfirm: {
-    backgroundColor: '#F1F3F5',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  confirmText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#495057',
-    textAlign: 'center',
-  },
-  alertBox: {
-    backgroundColor: '#FFF3CD',
-    borderLeftWidth: 4,
-    borderLeftColor: '#FFC107',
-    padding: 10,
-    borderRadius: 6,
-    marginBottom: 16,
-  },
-  alertTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#856404',
-    marginBottom: 4,
-  },
-  alertText: {
-    fontSize: 11,
-    color: '#856404',
-  },
-  grid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  gridSingle: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  card: {
-    backgroundColor: '#FFF',
-    width: '48%',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#EAEAEA',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  cardFull: {
-    backgroundColor: '#FFF',
-    width: '100%',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#EAEAEA',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  cardHeader: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#666',
-    marginBottom: 8,
-  },
-  price: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#111',
-  },
-  provider: {
-    fontSize: 14,
-    color: '#444',
-    marginTop: 2,
-    fontWeight: '600',
-  },
-  carType: {
-    fontSize: 11,
-    color: '#666',
-    marginTop: 3,
-    fontWeight: '500',
-    fontStyle: 'italic',
-  },
-  timing: {
-    fontSize: 11,
-    color: '#555',
-    marginTop: 4,
-    fontWeight: '500',
-  },
-  tapToOpen: {
-    fontSize: 10,
-    color: '#007BFF',
-    marginTop: 14,
-    fontWeight: '600',
-  },
-  upgradeBtn: {
-    backgroundColor: '#1A73E8',
-    padding: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-    position: 'absolute',
-    bottom: 30,
-    left: 16,
-    right: 16,
-  },
-  upgradeText: {
-    color: '#FFF',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E5',
-  },
-  modalClose: {
-    fontSize: 16,
-    color: '#666',
-    fontWeight: '600',
-  },
-  savedRoutesRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  savedRouteChip: {
-    backgroundColor: '#E8F0FE',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  savedRouteText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1A73E8',
-  },
-  quickActionsRow: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-  saveRouteBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
-  },
-  saveRouteBtnText: {
-    fontSize: 12,
-    color: '#1A73E8',
-    fontWeight: '600',
-  },
-  historyBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  historyBtnText: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
-  },
-  historyPanel: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-  },
-  historyTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 8,
-  },
-  historyItem: {
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
-  },
-  historyRoute: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
-  },
-  historyMeta: {
-    fontSize: 11,
-    color: '#888',
-    marginTop: 2,
-  },
+  splash: { flex: 1, backgroundColor: COLORS.teal, justifyContent: 'center', alignItems: 'center' },
+  splashLogo: { width: 220, height: 220 },
+  container: { flex: 1, backgroundColor: COLORS.bg, paddingHorizontal: 16, paddingTop: 20 },
+  header: { alignItems: 'center', marginBottom: 20 },
+  title: { fontSize: 32, fontWeight: '900', color: COLORS.teal },
+  subtitle: { fontSize: 13, color: COLORS.textMuted, letterSpacing: 2, textTransform: 'uppercase', marginTop: 2 },
+  premiumBadge: { fontSize: 11, color: COLORS.gold, fontWeight: '700', marginTop: 4, backgroundColor: COLORS.teal, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10 },
+  input: { backgroundColor: COLORS.white, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 12, padding: 14, fontSize: 15, color: COLORS.text },
+  quickRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, marginBottom: 4, gap: 8 },
+  quickChip: { backgroundColor: COLORS.teal, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
+  quickChipText: { color: COLORS.gold, fontSize: 13, fontWeight: '600' },
+  quickChipOutline: { borderWidth: 1.5, borderColor: COLORS.teal, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20 },
+  quickChipOutlineText: { color: COLORS.teal, fontSize: 12, fontWeight: '600' },
+  historyPanel: { backgroundColor: COLORS.white, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: COLORS.border },
+  historyItem: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  historyRoute: { fontSize: 13, fontWeight: '600', color: COLORS.text },
+  historyMeta: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  filterTitle: { fontSize: 13, fontWeight: '700', color: COLORS.textLight, marginTop: 12, marginBottom: 6 },
+  checkboxRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8, gap: 6 },
+  chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5 },
+  chipActive: { backgroundColor: COLORS.teal, borderColor: COLORS.teal },
+  chipInactive: { backgroundColor: COLORS.white, borderColor: COLORS.border },
+  chipText: { fontSize: 11, fontWeight: '600' },
+  chipTextActive: { color: COLORS.gold },
+  chipTextInactive: { color: COLORS.textLight },
+  actionRow: { flexDirection: 'row', marginTop: 4, marginBottom: 16, gap: 8 },
+  searchBtn: { flex: 1, backgroundColor: COLORS.gold, padding: 14, borderRadius: 10, alignItems: 'center' },
+  searchBtnText: { color: COLORS.teal, fontWeight: '800', fontSize: 15 },
+  radarBtn: { paddingHorizontal: 16, paddingVertical: 14, borderRadius: 10, borderWidth: 1.5, borderColor: COLORS.teal, alignItems: 'center', justifyContent: 'center' },
+  radarBtnActive: { backgroundColor: COLORS.teal, borderColor: COLORS.teal },
+  radarBtnText: { fontWeight: '700', fontSize: 13, color: COLORS.teal },
+  radarBtnTextActive: { color: COLORS.gold },
+  alertBox: { backgroundColor: COLORS.alert, borderLeftWidth: 4, borderLeftColor: COLORS.alertBorder, padding: 12, borderRadius: 8, marginBottom: 16 },
+  alertTitle: { fontSize: 12, fontWeight: '700', color: COLORS.teal, marginBottom: 4 },
+  alertText: { fontSize: 12, color: COLORS.textLight },
+  routeBox: { backgroundColor: COLORS.white, padding: 12, borderRadius: 10, marginBottom: 12, borderWidth: 1, borderColor: COLORS.border },
+  routeText: { fontSize: 13, fontWeight: '600', color: COLORS.text, textAlign: 'center' },
+  cardRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  card: { flex: 1, backgroundColor: COLORS.white, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.teal, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 3 },
+  cardFull: { backgroundColor: COLORS.white, borderRadius: 14, padding: 18, borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.teal, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 3 },
+  cardLabel: { fontSize: 10, fontWeight: '700', color: COLORS.textMuted, marginBottom: 6, letterSpacing: 0.5 },
+  cardPrice: { fontSize: 28, fontWeight: '900', color: COLORS.teal },
+  cardProvider: { fontSize: 14, color: COLORS.textLight, fontWeight: '600', marginTop: 2 },
+  cardCarType: { fontSize: 11, color: COLORS.textMuted, marginTop: 3, fontStyle: 'italic' },
+  cardTiming: { fontSize: 11, color: COLORS.textLight, marginTop: 4 },
+  cardCta: { fontSize: 11, color: COLORS.gold, fontWeight: '700', marginTop: 12 },
+  upgradeBtn: { backgroundColor: COLORS.teal, padding: 15, borderRadius: 12, alignItems: 'center', position: 'absolute', bottom: 30, left: 16, right: 16, shadowColor: COLORS.teal, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
+  upgradeBtnText: { color: COLORS.gold, fontWeight: '800', fontSize: 15 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  modalClose: { fontSize: 16, color: COLORS.textLight, fontWeight: '600' },
 });
