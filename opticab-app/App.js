@@ -62,6 +62,7 @@ export default function App() {
   const [rideHistory, setRideHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const scrollViewRef = useRef(null);
+  const [radarCountdown, setRadarCountdown] = useState(30);
 
   // Get or generate a stable device ID + load saved email
   useEffect(() => {
@@ -378,11 +379,17 @@ export default function App() {
   useEffect(() => {
     if (!isPremium || !isAutoPolling || !result) return;
 
+    setRadarCountdown(30);
     const radarTimer = setInterval(() => {
       handleSearchCommute(true);
+      setRadarCountdown(30);
     }, 30000);
 
-    return () => clearInterval(radarTimer);
+    const countdownTimer = setInterval(() => {
+      setRadarCountdown(prev => prev > 0 ? prev - 1 : 30);
+    }, 1000);
+
+    return () => { clearInterval(radarTimer); clearInterval(countdownTimer); };
   }, [isPremium, isAutoPolling, result, handleSearchCommute]);
 
   // 5. Deep Linking — uses live GPS coords as pickup, backend-resolved dropoff name
@@ -532,7 +539,7 @@ export default function App() {
                 onPress={() => setIsAutoPolling(!isAutoPolling)}
               >
                 <Text style={isAutoPolling ? styles.radarBtnTextActive : styles.radarBtnTextInactive}>
-                  {isAutoPolling ? '📡 Radar: ON (30s)' : '🛰️ Start Auto-Radar'}
+                  {isAutoPolling ? `📡 Refreshing in ${radarCountdown}s` : '🛰️ Fare-Watch'}
                 </Text>
               </TouchableOpacity>
             )}
