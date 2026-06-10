@@ -235,18 +235,44 @@ export default async function handler(req, res) {
     return res.status(200).json({ isInvalidInput: true, message: "Please enter a valid destination!" });
   }
 
+  // ─── Fast Pre-Filter: Catch obvious nonsense before any API/LLM calls ───
+  const trimmedPrompt = userPrompt.trim();
+
+  // Strip common travel prefixes to isolate the location part
+  const locationPart = trimmedPrompt
+    .replace(/^(take\s+me\s+to|bring\s+me\s+to|go\s+to|get\s+me\s+to|i\s+want\s+to\s+go\s+to|heading\s+to|going\s+to|drive\s+me\s+to|send\s+me\s+to)\s+/i, '')
+    .replace(/^(from\s+\S+\s+to)\s+/i, '')
+    .trim();
+
+  // Reject if the remaining location part is too short (single character or empty after prefix stripping)
+  if (locationPart.length < 2) {
+    return res.status(200).json({ isInvalidInput: true, message: "📍 Please enter a valid Singapore destination (e.g., \"Orchard Road\", \"Changi Airport\", or a 6-digit postal code)." });
+  }
+
+  // Reject profanity / obvious non-location gibberish (fast regex, no LLM needed)
+  const profanityPattern = /\b(fuck|shit|bitch|ass|dick|cunt|bastard|damn|hell|crap|piss|cock|wanker|nigger|faggot|retard)\b/i;
+  if (profanityPattern.test(trimmedPrompt)) {
+    return res.status(200).json({ isInvalidInput: true, message: "🤖 OptiCab Assistant: I can only help with travel and transport planning in Singapore. Please enter a destination or a ride request!" });
+  }
+
   try {
     // ═══ PHASE 1: Guard LLM + Postal Resolution in PARALLEL ═══
     const postalCodes = extractPostalCodes(userPrompt);
 
     const guardPromise = generateText({
       model: groq('llama-3.1-8b-instant'),
-      system: `You are the safety gatekeeper for OptiCab Singapore. Analyze the user prompt. 
-               Determine if the input is a genuine request to travel somewhere, catch a ride, or navigate to a destination.
-               IMPORTANT: Singapore postal codes (6-digit numbers like 238801, 018956, 540123) ARE valid travel destinations. Treat them as VALID.
-               Street names, building names, MRT station names, and area names are all VALID travel requests.
-               Only return "INVALID" if the input is completely unrelated to travel (e.g., math questions, cooking recipes, general chit-chat, nonsense, vulgarities, etc).
-               Return exactly: "VALID" or "INVALID".`,
+      system: `You are the safety gatekeeper for OptiCab Singapore. Analyze the user prompt.
+               Determine if the input is a genuine request to travel to a REAL, IDENTIFIABLE location in Singapore.
+               IMPORTANT RULES:
+               - Singapore postal codes (6-digit numbers like 238801, 018956, 540123) ARE valid. Return "VALID".
+               - Real Singapore street names, building names, MRT station names, malls, landmarks, and area names are VALID.
+               - If the destination sounds like it could plausibly be a real place name (even if you are unsure), return "VALID".
+               - Return "INVALID" if:
+                 * The input is completely unrelated to travel (math, recipes, chit-chat, questions)
+                 * The input contains profanity, insults, or abuse
+                 * The destination is clearly fictional, nonsensical, or made-up gibberish (e.g., "donkey place", "unicorn land", "asdfgh", "nowhere", "lalaland")
+                 * The destination is a well-known place OUTSIDE Singapore (e.g., "Tokyo", "New York", "London") with no Singapore context
+               Return EXACTLY one word: "VALID" or "INVALID". Nothing else.`,
       prompt: `User Prompt: "${userPrompt}"`,
     });
 
