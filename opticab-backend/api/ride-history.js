@@ -47,7 +47,7 @@ export default async function handler(req, res) {
         },
       }));
 
-      // Clean up old entries (keep only last 3)
+      // Clean up old entries (keep only last 2)
       const all = await docClient.send(new QueryCommand({
         TableName: TABLE,
         KeyConditionExpression: 'deviceId = :did',
@@ -56,8 +56,8 @@ export default async function handler(req, res) {
         Limit: 10,
       }));
 
-      if (all.Items && all.Items.length > 3) {
-        const toDelete = all.Items.slice(3);
+      if (all.Items && all.Items.length > 2) {
+        const toDelete = all.Items.slice(2);
         for (const item of toDelete) {
           await docClient.send(new DeleteCommand({
             TableName: TABLE,
