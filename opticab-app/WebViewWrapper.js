@@ -1,15 +1,13 @@
-// Native version — this file is used on Android/iOS
-// On web, WebViewWrapper.web.js is used instead (Metro platform extension)
-import { Platform, Text } from 'react-native';
-
-// Lazy import so the web bundle never tries to resolve react-native-webview
-let WebView = null;
-if (Platform.OS !== 'web') {
-  WebView = require('react-native-webview').WebView;
-}
+// Native version — used on Android/iOS
+// WebViewWrapper.web.js is the web version (Metro platform extension)
+// react-native-webview is NOT imported at the top level to avoid
+// it throwing "does not support this platform" during web bundling.
+import { Platform } from 'react-native';
 
 export function PaymentWebView({ uri, onMessage, style }) {
   if (Platform.OS === 'web') {
+    // Should never reach here — WebViewWrapper.web.js handles web.
+    // Fallback iframe in case bundler doesn't resolve the .web.js extension.
     return (
       <iframe
         src={uri}
@@ -18,5 +16,8 @@ export function PaymentWebView({ uri, onMessage, style }) {
       />
     );
   }
+
+  // Dynamic require keeps react-native-webview out of the web bundle entirely
+  const { WebView } = require('react-native-webview');
   return <WebView source={{ uri }} onMessage={onMessage} style={style} />;
 }
