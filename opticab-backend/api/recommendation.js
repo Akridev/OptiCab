@@ -297,7 +297,7 @@ export default async function handler(req, res) {
 
     // ═══ PHASE 2: Route Parsing LLM (needs enriched prompt from Phase 1) ═══
     const { text: llmOutput } = await generateText({
-      model: groq('llama-3.1-8b-instant'),
+      model: groq('openai/gpt-oss-20b'),
       system: `You are the brain of OptiCab Singapore. Analyze the user's prompt and current location context.
                IMPORTANT: Think beyond what the user literally typed. Consider what they ACTUALLY need to save money and stay safe.
                For example: a child aged 8+ does NOT need a child seat by Singapore law \u2014 don't flag it. A "kid" without an age should be assumed young (needs a seat). Always optimize for the cheapest safe option.
@@ -319,7 +319,7 @@ export default async function handler(req, res) {
       // Retry once with a simpler prompt
       try {
         const { text: retryOutput } = await generateText({
-          model: groq('llama-3.1-8b-instant'),
+          model: groq('openai/gpt-oss-20b'),
           system: `Return a JSON object with these fields: pickup (string or null), dropoff (string), distanceKm (number), passengers (number), needsBabySeat (boolean), needsLargeVehicle (boolean), childAges (array of numbers). No markdown, no explanation, ONLY raw JSON.`,
           prompt: `Parse this travel request: "${enrichedPrompt}". GPS: ${currentGpsLocation}`,
         });
