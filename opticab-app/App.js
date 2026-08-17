@@ -629,19 +629,21 @@ export default function App() {
           </Modal>
         )}
 
-        {/* Payment Modal */}
-        <Modal visible={showPaymentModal} animationType="slide" onRequestClose={() => setShowPaymentModal(false)}>
-          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
-                <Text style={styles.modalClose}>✕ Close</Text>
-              </TouchableOpacity>
-            </View>
-            {paymentUrl && (
-              <PaymentWebView uri={paymentUrl} onMessage={handlePaymentMessage} style={{ flex: 1 }} />
-            )}
-          </SafeAreaView>
-        </Modal>
+        {/* Payment Modal — native only (web opens in new tab) */}
+        {Platform.OS !== 'web' && (
+          <Modal visible={showPaymentModal} animationType="slide" onRequestClose={() => setShowPaymentModal(false)}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
+              <View style={styles.modalHeader}>
+                <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
+                  <Text style={styles.modalClose}>✕ Close</Text>
+                </TouchableOpacity>
+              </View>
+              {paymentUrl && (
+                <PaymentWebView uri={paymentUrl} onMessage={handlePaymentMessage} style={{ flex: 1 }} />
+              )}
+            </SafeAreaView>
+          </Modal>
+        )}
       </SafeAreaView>
     </SafeAreaProvider>
   );
