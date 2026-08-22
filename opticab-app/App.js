@@ -1,11 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { StyleSheet, Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Keyboard, ScrollView, Platform, Modal, Image, Animated, StatusBar } from 'react-native';
+import { Text, TextInput, View, TouchableOpacity, ActivityIndicator, Linking, Keyboard, ScrollView, Platform, Modal, Image, Animated, StatusBar } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Notifications from 'expo-notifications';
-
-// Styles
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import * as Location from 'expo-location';
+import * as Application from 'expo-application';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { PaymentWebView } from './WebViewWrapper';
+import COLORS from './colors';
 import styles from './styles';
-import popupStyles from './popupStyles'
+import popupStyles from './popupStyles';
 
 // Platform-safe notification handler (notifications don't work on web)
 const scheduleNotification = async (content) => {
@@ -14,11 +18,6 @@ const scheduleNotification = async (content) => {
     await Notifications.scheduleNotificationAsync({ content, trigger: null });
   } catch {}
 };
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import * as Location from 'expo-location';
-import * as Application from 'expo-application';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PaymentWebView } from './WebViewWrapper';
 
 // On web, payment opens in new tab instead of WebView
 const openPaymentWeb = (url) => {
@@ -28,33 +27,14 @@ const openPaymentWeb = (url) => {
 };
 
 // ─── Config ───
-const API_URL = 'https://opticab-backend.vercel.app/api/recommendation';
-const CREATE_PAYMENT_URL = 'https://opticab-backend.vercel.app/api/create-payment';
-const PAYMENT_FORM_URL = 'https://opticab-backend.vercel.app/api/payment-form';
+const API_URL               = 'https://opticab-backend.vercel.app/api/recommendation';
+const CREATE_PAYMENT_URL    = 'https://opticab-backend.vercel.app/api/create-payment';
+const PAYMENT_FORM_URL      = 'https://opticab-backend.vercel.app/api/payment-form';
 const SUBSCRIPTION_STATUS_URL = 'https://opticab-backend.vercel.app/api/subscription-status';
-const SAVED_ROUTES_URL = 'https://opticab-backend.vercel.app/api/saved-routes';
-const RIDE_HISTORY_URL = 'https://opticab-backend.vercel.app/api/ride-history';
-const FARE_REFRESH_URL = 'https://opticab-backend.vercel.app/api/fare-refresh';
-const FARE_FEEDBACK_URL = 'https://opticab-backend.vercel.app/api/fare-feedback';
-
-// ─── Theme ───
-const COLORS = {
-  teal: '#1D4E5F',
-  tealLight: '#2A6B7C',
-  gold: '#F2C94C',
-  goldDark: '#D4A93A',
-  bg: '#F5F7FA',
-  white: '#FFFFFF',
-  card: '#FFFFFF',
-  text: '#1D4E5F',
-  textLight: '#5A7A86',
-  textMuted: '#8FA8B2',
-  border: '#E2EBF0',
-  alert: '#FFF8E1',
-  alertBorder: '#F2C94C',
-  error: '#E74C3C',
-  success: '#27AE60',
-};
+const SAVED_ROUTES_URL      = 'https://opticab-backend.vercel.app/api/saved-routes';
+const RIDE_HISTORY_URL      = 'https://opticab-backend.vercel.app/api/ride-history';
+const FARE_REFRESH_URL      = 'https://opticab-backend.vercel.app/api/fare-refresh';
+const FARE_FEEDBACK_URL     = 'https://opticab-backend.vercel.app/api/fare-feedback';
 
 const AVAILABLE_APPS = ['Grab', 'TADA', 'Gojek', 'Ryde', 'ComfortDelGro'];
 
@@ -127,17 +107,20 @@ export default function App() {
   const [savedRoutes, setSavedRoutes] = useState({ home: null, work: null });
   const [rideHistory, setRideHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
-  const scrollViewRef = useRef(null);
+  const [selectedApps, setSelectedApps] = useState(AVAILABLE_APPS);
+  const [checkingSubscription, setCheckingSubscription] = useState(true);
+  const [pickupIsCurrentLocation, setPickupIsCurrentLocation] = useState(false);
   const [radarCountdown, setRadarCountdown] = useState(30);
   const [radarRefreshing, setRadarRefreshing] = useState(false);
   const [lastRouteData, setLastRouteData] = useState(null);
-  const lastPriceRef = useRef(null); // Track previous cheapest price for drop detection
-
-  // Fare feedback state — "What did you pay?"
   const [feedbackModal, setFeedbackModal] = useState({ visible: false, provider: null, estimatedFare: null });
   const [feedbackInput, setFeedbackInput] = useState('');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
 
+  const scrollViewRef = useRef(null);
+  const lastPriceRef = useRef(null);
+
+  // ─── Fare Feedback ───
   const submitFareFeedback = async (actualFare) => {
     if (!feedbackModal.provider || !actualFare) return;
     setFeedbackSubmitting(true);
@@ -165,7 +148,7 @@ export default function App() {
     }
   };
 
-  // Setup notifications on mount (native only)
+  // ─── Notifications ───
   useEffect(() => {
     if (Platform.OS === 'web') return;
     (async () => {
@@ -177,11 +160,8 @@ export default function App() {
       }
     })();
   }, []);
-  const [selectedApps, setSelectedApps] = useState(AVAILABLE_APPS);
-  const [checkingSubscription, setCheckingSubscription] = useState(true);
-  const [pickupIsCurrentLocation, setPickupIsCurrentLocation] = useState(false);
 
-  // Splash animation
+  // ─── Splash ───
   useEffect(() => {
     const timer = setTimeout(() => {
       Animated.timing(splashOpacity, { toValue: 0, duration: 500, useNativeDriver: true }).start(() => setShowSplash(false));
@@ -189,7 +169,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Device ID + email
+  // ─── Device ID + Email ───
   useEffect(() => {
     (async () => {
       try {
@@ -206,7 +186,7 @@ export default function App() {
     })();
   }, []);
 
-  // Check subscription
+  // ─── Subscription ───
   useEffect(() => { if (userEmail) checkSubscriptionStatus(); }, [userEmail]);
 
   const checkSubscriptionStatus = async () => {
@@ -218,7 +198,7 @@ export default function App() {
     } catch {} finally { setCheckingSubscription(false); }
   };
 
-  // Load routes + history
+  // ─── Routes + History ───
   useEffect(() => { if (deviceId) { loadSavedRoutes(); loadRideHistory(); } }, [deviceId]);
 
   const loadSavedRoutes = async () => {
@@ -263,7 +243,7 @@ export default function App() {
     } catch {}
   };
 
-  // Lightweight fare refresh for Fare-Watch (skips LLM + routing)
+  // ─── Fare-Watch Refresh ───
   const fareWatchRefresh = async () => {
     if (!lastRouteData) return;
     try {
@@ -274,16 +254,15 @@ export default function App() {
       });
       const data = await response.json();
       if (data && !data.error) {
-        // Check for price drop
         const newCheapest = data.cheapest?.price;
         const prevPrice = lastPriceRef.current;
         if (prevPrice && newCheapest && newCheapest < prevPrice) {
           const savings = (prevPrice - newCheapest).toFixed(2);
           scheduleNotification({
-              title: '💰 Price Dropped!',
-              body: `${data.cheapest.provider} now $${newCheapest.toFixed(2)} (was $${prevPrice.toFixed(2)}) — save $${savings}`,
-              sound: true,
-            });
+            title: '💰 Price Dropped!',
+            body: `${data.cheapest.provider} now $${newCheapest.toFixed(2)} (was $${prevPrice.toFixed(2)}) — save $${savings}`,
+            sound: true,
+          });
         }
         lastPriceRef.current = newCheapest;
         setResult(data);
@@ -291,7 +270,7 @@ export default function App() {
     } catch {}
   };
 
-  // Payment
+  // ─── Payment ───
   const handleUpgrade = () => setShowEmailPrompt(true);
 
   const handlePaymentMessage = (event) => {
@@ -308,7 +287,7 @@ export default function App() {
     } else { setSelectedApps([...selectedApps, appName]); }
   };
 
-  // Search
+  // ─── Search ───
   const handleSearchCommute = useCallback(async (isBackgroundRefresh = false) => {
     if (!promptText.trim()) return;
     if (!isBackgroundRefresh) setLoading(true);
@@ -350,7 +329,6 @@ export default function App() {
       if (!isBackgroundRefresh && data && !data.isInvalidInput) {
         setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 300);
         saveToHistory(data);
-        // Cache route data for Fare-Watch lightweight refreshes
         if (data.extractedRoute) {
           lastPriceRef.current = data.cheapest?.price || null;
           setLastRouteData({
@@ -370,7 +348,7 @@ export default function App() {
     } finally { if (!isBackgroundRefresh) setLoading(false); }
   }, [promptText, selectedApps]);
 
-  // Radar
+  // ─── Radar ───
   useEffect(() => {
     if (!isPremium || !isAutoPolling || !result) return;
     setRadarCountdown(30);
@@ -384,20 +362,19 @@ export default function App() {
     return () => { clearInterval(radarTimer); clearInterval(countdownTimer); };
   }, [isPremium, isAutoPolling, result]);
 
-  // App config for deep linking
+  // ─── Deep Linking ───
   const APPS = {
-    grab: { scheme: 'grab://', iosStore: 'https://apps.apple.com/sg/app/grab-superapp/id647268330', androidStore: 'https://play.google.com/store/apps/details?id=com.grabtaxi.passenger' },
-    tada: { scheme: 'tada://', iosStore: 'https://apps.apple.com/sg/app/tada-ride-hailing/id1412329684', androidStore: 'https://play.google.com/store/apps/details?id=io.mvlchain.tada' },
-    gojek: { scheme: 'gojek://', iosStore: 'https://apps.apple.com/sg/app/gojek/id944875099', androidStore: 'https://play.google.com/store/apps/details?id=com.gojek.app' },
-    ryde: { scheme: 'ryde://', iosStore: 'https://apps.apple.com/sg/app/ryde-ride-hailing-more/id979806982', androidStore: 'https://play.google.com/store/apps/details?id=com.rydesharing.ryde' },
-    comfortdelgro: { scheme: 'cdgzig://', iosStore: 'https://apps.apple.com/sg/app/cdg-zig-taxis-cars/id954951647', androidStore: 'https://play.google.com/store/apps/details?id=com.codigo.comfort' },
+    grab:         { scheme: 'grab://',   iosStore: 'https://apps.apple.com/sg/app/grab-superapp/id647268330',        androidStore: 'https://play.google.com/store/apps/details?id=com.grabtaxi.passenger' },
+    tada:         { scheme: 'tada://',   iosStore: 'https://apps.apple.com/sg/app/tada-ride-hailing/id1412329684',   androidStore: 'https://play.google.com/store/apps/details?id=io.mvlchain.tada' },
+    gojek:        { scheme: 'gojek://',  iosStore: 'https://apps.apple.com/sg/app/gojek/id944875099',               androidStore: 'https://play.google.com/store/apps/details?id=com.gojek.app' },
+    ryde:         { scheme: 'ryde://',   iosStore: 'https://apps.apple.com/sg/app/ryde-ride-hailing-more/id979806982', androidStore: 'https://play.google.com/store/apps/details?id=com.rydesharing.ryde' },
+    comfortdelgro:{ scheme: 'cdgzig://', iosStore: 'https://apps.apple.com/sg/app/cdg-zig-taxis-cars/id954951647',   androidStore: 'https://play.google.com/store/apps/details?id=com.codigo.comfort' },
   };
 
   const launchDeepLink = async (provider, dropoffName) => {
     const destination = dropoffName || 'your destination';
     const key = provider.toLowerCase();
 
-    // Walk option — always open maps
     if (key === 'walk (healthy option)') {
       const origin = `${resolvedCoords?.lat ?? 1.3048},${resolvedCoords?.lng ?? 103.8318}`;
       const url = Platform.OS === 'ios'
@@ -410,7 +387,6 @@ export default function App() {
     const app = APPS[key];
     if (!app) return;
 
-    // Copy destination to clipboard
     Clipboard.setStringAsync(destination);
 
     showAlert(`Opening ${provider}`, `📋 Destination copied!\n\n"${destination}"\n\nPaste it in the "To" field after the app opens.`, [
@@ -421,7 +397,6 @@ export default function App() {
         } catch {
           await Linking.openURL(Platform.OS === 'ios' ? app.iosStore : app.androidStore);
         }
-        // Ask for actual fare after a short delay (user has opened the app)
         setTimeout(() => {
           const estimatedFare = result?.cheapest?.provider === provider
             ? result?.cheapest?.price
@@ -436,7 +411,7 @@ export default function App() {
   // ─── RENDER ───
   if (showSplash) {
     return (
-      <Animated.View style={[styles.splash, { opacity: splashOpacity }]}>  
+      <Animated.View style={[styles.splash, { opacity: splashOpacity }]}>
         <StatusBar barStyle="light-content" backgroundColor={COLORS.teal} />
         <Image source={require('./assets/logo.png')} style={styles.splashLogo} resizeMode="contain" />
       </Animated.View>
@@ -448,6 +423,7 @@ export default function App() {
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
         <ScrollView showsVerticalScrollIndicator={false} ref={scrollViewRef}>
+
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>OptiCab</Text>
@@ -533,10 +509,11 @@ export default function App() {
                   }
                 }}
               >
-                {(loading && isAutoPolling) || radarRefreshing ? <ActivityIndicator color={isAutoPolling ? COLORS.gold : COLORS.teal} /> :
-                  <Text style={[styles.radarBtnText, isAutoPolling && styles.radarBtnTextActive]}>
-                    {isAutoPolling ? `📡 ${radarCountdown}s` : '🛰️ Fare-Watch'}
-                  </Text>
+                {(loading && isAutoPolling) || radarRefreshing
+                  ? <ActivityIndicator color={isAutoPolling ? COLORS.gold : COLORS.teal} />
+                  : <Text style={[styles.radarBtnText, isAutoPolling && styles.radarBtnTextActive]}>
+                      {isAutoPolling ? `📡 ${radarCountdown}s` : '🛰️ Fare-Watch'}
+                    </Text>
                 }
               </TouchableOpacity>
             )}
@@ -598,6 +575,7 @@ export default function App() {
               )}
             </View>
           )}
+
         </ScrollView>
 
         {/* Upgrade Footer */}
@@ -730,6 +708,7 @@ export default function App() {
             </View>
           </View>
         </Modal>
+
       </SafeAreaView>
     </SafeAreaProvider>
   );
