@@ -1,7 +1,7 @@
 import { StyleSheet } from "react-native";
 import COLORS from './colors';
 
-export default popupStyles = StyleSheet.create({
+export default StyleSheet.create({
 
     overlay: { 
         flex: 1, 
