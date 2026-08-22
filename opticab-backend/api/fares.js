@@ -2,49 +2,57 @@
 // Multi-Provider Fare Matrix Engine (Vercel Serverless Function)
 // Uses OneMap Singapore for real road distance & driving time
 
+// ─── Rate Cards (updated August 2026) ───────────────────────────────────────
+// Sources:
+//   Grab: base fare raised to $3.50 (Jun 2025, CNA), platform fee $1.20 (Jan 2026, CNA)
+//   TADA: platform fee $1.05–$1.25 (Jan 2025, ST); zero-commission model keeps per-km low
+//   Gojek: platform fee raised ~$0.40 (Jan 2025, CNA); per-km competitive with TADA
+//   Ryde: platform fee $1.25 trips ≤$18, $1.47 trips >$18 (Feb 2025, ST)
+//   CDG: platform fee $1.00–$1.30 (Jan 2026, ST); min fare $6 (cdgtaxi.com.sg)
+//   All perKm/perMin derived from LTA-regulated metered base + PHV market delta
 const FARE_CONFIG = {
   grab: {
-    baseFare: 4.80,
-    perKmRate: 1.20,
-    perMinRate: 0.30,
-    bookingFee: 2.00,
-    minFare: 8.00,
+    baseFare: 3.50,       // Raised from $2.50 to $3.50 in Jun 2025
+    perKmRate: 1.15,      // JustGrab PHV rate (LTA-anchored, slightly above metered)
+    perMinRate: 0.28,     // ~$0.22/45s metered equivalent converted to per-minute
+    bookingFee: 1.20,     // Platform fee raised to $1.20 in Jan 2026
+    minFare: 7.00,        // Effective minimum after Jun 2025 base fare increase
     baseEta: 3,
     surgeCapMultiplier: 2.5,
   },
   tada: {
-    baseFare: 4.00,
-    perKmRate: 1.05,
-    perMinRate: 0.28,
-    bookingFee: 0.00,
-    minFare: 7.00,
+    baseFare: 3.20,       // Zero-commission model keeps base lower than Grab
+    perKmRate: 1.00,      // Typically 5–10% cheaper than Grab per km
+    perMinRate: 0.25,
+    bookingFee: 1.15,     // Mid-range of $1.05–$1.25 platform fee (Jan 2025)
+    minFare: 6.50,
     baseEta: 5,
     surgeCapMultiplier: 1.8,
   },
   gojek: {
-    baseFare: 4.50,
-    perKmRate: 1.10,
-    perMinRate: 0.28,
-    bookingFee: 1.50,
-    minFare: 7.50,
+    baseFare: 3.30,
+    perKmRate: 1.05,
+    perMinRate: 0.26,
+    bookingFee: 1.20,     // Raised ~$0.40 from Jan 2025; mid-range estimate
+    minFare: 6.80,
     baseEta: 4,
     surgeCapMultiplier: 2.2,
   },
   ryde: {
-    baseFare: 3.50,
+    baseFare: 3.00,       // Budget-oriented, lowest base in market
     perKmRate: 0.95,
-    perMinRate: 0.25,
-    bookingFee: 1.00,
-    minFare: 6.50,
+    perMinRate: 0.24,
+    bookingFee: 1.25,     // $1.25 for trips ≤$18 (Feb 2025, ST)
+    minFare: 6.00,
     baseEta: 6,
     surgeCapMultiplier: 1.6,
   },
   cdg: {
-    baseFare: 4.20,
-    perKmRate: 1.30,
-    perMinRate: 0.33,
-    bookingFee: 3.30,
-    minFare: 9.00,
+    baseFare: 3.90,       // CDG metered flag-fall (standard taxi, LTA 2025)
+    perKmRate: 1.25,      // Metered: $0.22/400m ≈ $0.55/km; PHV ComfortRIDE premium
+    perMinRate: 0.30,     // $0.22/45s waiting ≈ $0.29/min
+    bookingFee: 1.15,     // Mid-range of $1.00–$1.30 platform fee (Jan 2026)
+    minFare: 6.00,        // CDG Zig FAQ: minimum fare S$6
     baseEta: 3,
     surgeCapMultiplier: 1.5,
   },

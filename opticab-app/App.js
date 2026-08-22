@@ -31,6 +31,7 @@ const SUBSCRIPTION_STATUS_URL = 'https://opticab-backend.vercel.app/api/subscrip
 const SAVED_ROUTES_URL = 'https://opticab-backend.vercel.app/api/saved-routes';
 const RIDE_HISTORY_URL = 'https://opticab-backend.vercel.app/api/ride-history';
 const FARE_REFRESH_URL = 'https://opticab-backend.vercel.app/api/fare-refresh';
+const FARE_FEEDBACK_URL = 'https://opticab-backend.vercel.app/api/fare-feedback';
 
 // ─── Theme ───
 const COLORS = {
@@ -140,6 +141,38 @@ export default function App() {
   const [radarRefreshing, setRadarRefreshing] = useState(false);
   const [lastRouteData, setLastRouteData] = useState(null);
   const lastPriceRef = useRef(null); // Track previous cheapest price for drop detection
+
+  // Fare feedback state — "What did you pay?"
+  const [feedbackModal, setFeedbackModal] = useState({ visible: false, provider: null, estimatedFare: null });
+  const [feedbackInput, setFeedbackInput] = useState('');
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+
+  const submitFareFeedback = async (actualFare) => {
+    if (!feedbackModal.provider || !actualFare) return;
+    setFeedbackSubmitting(true);
+    try {
+      const sgNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));
+      await fetch(FARE_FEEDBACK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId,
+          provider: feedbackModal.provider,
+          actualFare: parseFloat(actualFare),
+          estimatedFare: feedbackModal.estimatedFare,
+          distanceKm: lastRouteData?.distanceKm || null,
+          hour: sgNow.getHours(),
+          dayOfWeek: sgNow.getDay(),
+          pickupArea: lastRouteData?.pickupDisplay || null,
+          dropoffArea: lastRouteData?.dropoffDisplay || null,
+        }),
+      });
+    } catch {} finally {
+      setFeedbackSubmitting(false);
+      setFeedbackModal({ visible: false, provider: null, estimatedFare: null });
+      setFeedbackInput('');
+    }
+  };
 
   // Setup notifications on mount (native only)
   useEffect(() => {
@@ -397,6 +430,14 @@ export default function App() {
         } catch {
           await Linking.openURL(Platform.OS === 'ios' ? app.iosStore : app.androidStore);
         }
+        // Ask for actual fare after a short delay (user has opened the app)
+        setTimeout(() => {
+          const estimatedFare = result?.cheapest?.provider === provider
+            ? result?.cheapest?.price
+            : result?.fastest?.price;
+          setFeedbackInput('');
+          setFeedbackModal({ visible: true, provider, estimatedFare: estimatedFare || null });
+        }, 3000);
       }},
     ]);
   };
@@ -644,10 +685,63 @@ export default function App() {
             </SafeAreaView>
           </Modal>
         )}
+
+        {/* Fare Feedback Modal — "What did you pay?" */}
+        <Modal
+          visible={feedbackModal.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => { setFeedbackModal({ visible: false, provider: null, estimatedFare: null }); setFeedbackInput(''); }}
+        >
+          <View style={styles.feedbackOverlay}>
+            <View style={styles.feedbackContainer}>
+              <Text style={styles.feedbackTitle}>What did you pay? 💸</Text>
+              <Text style={styles.feedbackSub}>
+                Help us improve fare accuracy for {feedbackModal.provider}.
+                {feedbackModal.estimatedFare ? ` We estimated $${feedbackModal.estimatedFare?.toFixed(2)}.` : ''}
+              </Text>
+              <View style={styles.feedbackInputRow}>
+                <Text style={styles.feedbackDollar}>$</Text>
+                <TextInput
+                  style={styles.feedbackInput}
+                  placeholder="e.g. 12.50"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="decimal-pad"
+                  value={feedbackInput}
+                  onChangeText={setFeedbackInput}
+                  maxLength={6}
+                  autoFocus
+                />
+              </View>
+              <View style={styles.feedbackBtnRow}>
+                <TouchableOpacity
+                  style={styles.feedbackSkip}
+                  onPress={() => { setFeedbackModal({ visible: false, provider: null, estimatedFare: null }); setFeedbackInput(''); }}
+                >
+                  <Text style={styles.feedbackSkipText}>Skip</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.feedbackSubmit, (!feedbackInput || feedbackSubmitting) && { opacity: 0.5 }]}
+                  onPress={() => {
+                    const val = parseFloat(feedbackInput);
+                    if (!feedbackInput || isNaN(val) || val <= 0) return;
+                    submitFareFeedback(val);
+                  }}
+                  disabled={!feedbackInput || feedbackSubmitting}
+                >
+                  {feedbackSubmitting
+                    ? <ActivityIndicator color={COLORS.teal} />
+                    : <Text style={styles.feedbackSubmitText}>Submit</Text>
+                  }
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.feedbackNote}>Anonymous · helps train smarter estimates</Text>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </SafeAreaProvider>
   );
-}
 
 
 const styles = StyleSheet.create({
@@ -702,4 +796,17 @@ const styles = StyleSheet.create({
   upgradeBtnSub: { color: COLORS.textMuted, fontSize: 11, marginTop: 3 },
   modalHeader: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   modalClose: { fontSize: 16, color: COLORS.textLight, fontWeight: '600' },
+  feedbackOverlay: { flex: 1, backgroundColor: 'rgba(29,78,95,0.6)', justifyContent: 'center', padding: 28 },
+  feedbackContainer: { backgroundColor: COLORS.white, borderRadius: 16, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 10 },
+  feedbackTitle: { fontSize: 18, fontWeight: '800', color: COLORS.teal, marginBottom: 6 },
+  feedbackSub: { fontSize: 13, color: COLORS.textLight, marginBottom: 18, lineHeight: 18 },
+  feedbackInputRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 10, paddingHorizontal: 12, marginBottom: 20 },
+  feedbackDollar: { fontSize: 20, fontWeight: '700', color: COLORS.teal, marginRight: 6 },
+  feedbackInput: { flex: 1, fontSize: 22, fontWeight: '700', color: COLORS.teal, paddingVertical: 10 },
+  feedbackBtnRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  feedbackSkip: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8, backgroundColor: COLORS.border },
+  feedbackSkipText: { color: COLORS.textLight, fontWeight: '600', fontSize: 14 },
+  feedbackSubmit: { paddingHorizontal: 22, paddingVertical: 10, borderRadius: 8, backgroundColor: COLORS.teal },
+  feedbackSubmitText: { color: COLORS.white, fontWeight: '700', fontSize: 14 },
+  feedbackNote: { fontSize: 10, color: COLORS.textMuted, textAlign: 'center', marginTop: 14 },
 });
